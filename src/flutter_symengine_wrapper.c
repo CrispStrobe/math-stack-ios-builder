@@ -397,6 +397,56 @@ char* flutter_symengine_pi_with_precision(int decimal_digits) {
     return result;
 }
 
+// Shared helper macro: evalf a basic-producing constructor at the
+// requested decimal precision and return the result as a malloc'd
+// string. The `ctor` argument is a statement that populates `sym`.
+#define IMPLEMENT_CONST_WITH_PRECISION(fn_name, op_label, ctor) \
+char* fn_name(int decimal_digits) { \
+    if (decimal_digits < 1 || decimal_digits > 10000) { \
+        return create_error_string(op_label, \
+            "decimal_digits must be in 1..10000"); \
+    } \
+    basic sym, evalf_result; \
+    basic_new_stack(sym); \
+    basic_new_stack(evalf_result); \
+    ctor; \
+    unsigned long bits = \
+        (unsigned long)((double)decimal_digits * 3.322) + 8; \
+    if (basic_evalf(evalf_result, sym, bits, 1) != SYMENGINE_NO_EXCEPTION) { \
+        basic_free_stack(sym); \
+        basic_free_stack(evalf_result); \
+        return create_error_string(op_label, "evalf failed"); \
+    } \
+    char* result = basic_to_string_safe(evalf_result); \
+    basic_free_stack(sym); \
+    basic_free_stack(evalf_result); \
+    return result; \
+}
+
+IMPLEMENT_CONST_WITH_PRECISION(
+    flutter_symengine_e_with_precision,
+    "e_with_precision",
+    basic_const_E(sym))
+
+IMPLEMENT_CONST_WITH_PRECISION(
+    flutter_symengine_euler_gamma_with_precision,
+    "euler_gamma_with_precision",
+    basic_const_EulerGamma(sym))
+
+// sqrt(2) has no basic_const_* helper — parse the string form.
+// basic_evalf then routes through MPFR like the other constants.
+IMPLEMENT_CONST_WITH_PRECISION(
+    flutter_symengine_sqrt2_with_precision,
+    "sqrt2_with_precision",
+    do {
+        if (basic_parse(sym, "sqrt(2)") != SYMENGINE_NO_EXCEPTION) {
+            basic_free_stack(sym);
+            basic_free_stack(evalf_result);
+            return create_error_string("sqrt2_with_precision",
+                "parse failed");
+        }
+    } while (0))
+
 // --- Matrix Operations (Opaque Pointers) ---
 
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {

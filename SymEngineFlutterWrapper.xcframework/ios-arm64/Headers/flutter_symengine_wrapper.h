@@ -59,6 +59,9 @@ char* flutter_symengine_get_euler_gamma(void);
 // basic_evalf). The argument is decimal digits, 1..10000. Returns a
 // string the caller must free with flutter_symengine_free_string.
 char* flutter_symengine_pi_with_precision(int decimal_digits);
+char* flutter_symengine_e_with_precision(int decimal_digits);
+char* flutter_symengine_euler_gamma_with_precision(int decimal_digits);
+char* flutter_symengine_sqrt2_with_precision(int decimal_digits);
 
 // Matrix operations (using opaque pointers for memory safety)
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols);

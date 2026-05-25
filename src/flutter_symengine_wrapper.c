@@ -372,6 +372,31 @@ char* flutter_symengine_get_euler_gamma(void) {
     return str;
 }
 
+// --- Arbitrary-Precision Real Constants ---
+
+char* flutter_symengine_pi_with_precision(int decimal_digits) {
+    if (decimal_digits < 1 || decimal_digits > 10000) {
+        return create_error_string("pi_with_precision",
+            "decimal_digits must be in 1..10000");
+    }
+    basic pi_sym, pi_evalf;
+    basic_new_stack(pi_sym);
+    basic_new_stack(pi_evalf);
+    basic_const_pi(pi_sym);
+    // MPFR works in bits; 10 decimal digits ≈ 33.22 bits. Pad +8
+    // bits so the trailing digit rounds correctly.
+    unsigned long bits = (unsigned long)((double)decimal_digits * 3.322) + 8;
+    if (basic_evalf(pi_evalf, pi_sym, bits, 1) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(pi_sym);
+        basic_free_stack(pi_evalf);
+        return create_error_string("pi_with_precision", "evalf failed");
+    }
+    char* result = basic_to_string_safe(pi_evalf);
+    basic_free_stack(pi_sym);
+    basic_free_stack(pi_evalf);
+    return result;
+}
+
 // --- Matrix Operations (Opaque Pointers) ---
 
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {

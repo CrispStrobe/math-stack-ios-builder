@@ -55,6 +55,11 @@ char* flutter_symengine_get_pi(void);
 char* flutter_symengine_get_e(void);
 char* flutter_symengine_get_euler_gamma(void);
 
+// Arbitrary-precision real constants via MPFR (through SymEngine's
+// basic_evalf). The argument is decimal digits, 1..10000. Returns a
+// string the caller must free with flutter_symengine_free_string.
+char* flutter_symengine_pi_with_precision(int decimal_digits);
+
 // Matrix operations (using opaque pointers for memory safety)
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols);
 void flutter_symengine_matrix_free(CDenseMatrix* matrix);

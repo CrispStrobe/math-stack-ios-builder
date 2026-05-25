@@ -447,6 +447,78 @@ IMPLEMENT_CONST_WITH_PRECISION(
         }
     } while (0))
 
+// --- Number-Theory Primitives (Round 89) ---
+//
+// `isprime(n)` and `prevprime(n)` go straight to GMP because
+// SymEngine's cwrapper.h doesn't expose them. `nextprime(n)` goes
+// through SymEngine's `ntheory_nextprime` (basic-level) for
+// consistency with the rest of the SymEngine ntheory family. All
+// three accept arbitrary-precision decimal strings.
+
+#include <gmp.h>
+
+char* flutter_symengine_isprime(const char* n) {
+    if (!n) return create_error_string("isprime", "null input");
+    mpz_t x;
+    if (mpz_init_set_str(x, n, 10) != 0) {
+        mpz_clear(x);
+        return create_error_string("isprime", "parse failed");
+    }
+    // 25 Miller-Rabin reps. Returns 0 (composite), 1 (probably
+    // prime), 2 (definitely prime). Any positive result = "true".
+    int r = mpz_probab_prime_p(x, 25);
+    mpz_clear(x);
+    return strdup(r > 0 ? "true" : "false");
+}
+
+char* flutter_symengine_nextprime(const char* n) {
+    if (!n) return create_error_string("nextprime", "null input");
+    basic input, result;
+    basic_new_stack(input);
+    basic_new_stack(result);
+    if (basic_parse(input, n) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(input);
+        basic_free_stack(result);
+        return create_error_string("nextprime", "parse failed");
+    }
+    if (ntheory_nextprime(result, input) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(input);
+        basic_free_stack(result);
+        return create_error_string("nextprime", "operation failed");
+    }
+    char* s = basic_to_string_safe(result);
+    basic_free_stack(input);
+    basic_free_stack(result);
+    return s;
+}
+
+char* flutter_symengine_prevprime(const char* n) {
+    if (!n) return create_error_string("prevprime", "null input");
+    mpz_t x;
+    if (mpz_init_set_str(x, n, 10) != 0) {
+        mpz_clear(x);
+        return create_error_string("prevprime", "parse failed");
+    }
+    // prevprime is defined as "largest p with p < n and p prime".
+    // No prime is < 2.
+    if (mpz_cmp_ui(x, 3) < 0) {
+        mpz_clear(x);
+        return create_error_string("prevprime", "no prime below input");
+    }
+    // Decrement until prime. The gap between consecutive primes
+    // around N is ~ln(N) on average, so this loop runs only a few
+    // times for typical inputs. For mathematicians who pass a
+    // billion-digit value we'd cap at e.g. 10000 iterations — for
+    // now trust the user.
+    mpz_sub_ui(x, x, 1);
+    while (mpz_cmp_ui(x, 2) > 0 && mpz_probab_prime_p(x, 25) == 0) {
+        mpz_sub_ui(x, x, 1);
+    }
+    char* s = mpz_get_str(NULL, 10, x);
+    mpz_clear(x);
+    return s;
+}
+
 // --- Matrix Operations (Opaque Pointers) ---
 
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {

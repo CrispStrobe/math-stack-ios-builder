@@ -63,6 +63,14 @@ char* flutter_symengine_e_with_precision(int decimal_digits);
 char* flutter_symengine_euler_gamma_with_precision(int decimal_digits);
 char* flutter_symengine_sqrt2_with_precision(int decimal_digits);
 
+// Number-theory primitives (round 89). All take arbitrary-
+// precision decimal strings. `isprime` returns "true" / "false";
+// `nextprime` and `prevprime` return a decimal string. Caller
+// frees the result with `flutter_symengine_free_string`.
+char* flutter_symengine_isprime(const char* n);
+char* flutter_symengine_nextprime(const char* n);
+char* flutter_symengine_prevprime(const char* n);
+
 // Matrix operations (using opaque pointers for memory safety)
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols);
 void flutter_symengine_matrix_free(CDenseMatrix* matrix);

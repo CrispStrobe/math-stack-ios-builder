@@ -519,6 +519,96 @@ char* flutter_symengine_prevprime(const char* n) {
     return s;
 }
 
+// Round 90: integer factorization via FLINT's fmpz_factor (Pollard
+// rho + trial division). Returns a compact string of the form
+// "p1^e1*p2^e2*..." with the "^1" omitted for unit exponents.
+// Special-cases: "0" for n=0, "1" for n=1 (no factors). Negative
+// inputs get a leading "-1*" prefix. Bit-size capped at 90 to
+// keep the per-call time bounded — FLINT can handle bigger numbers
+// but the user shouldn't lock the UI for a multi-second factor.
+
+#include <flint/fmpz.h>
+#include <flint/fmpz_factor.h>
+
+char* flutter_symengine_factorint(const char* n) {
+    if (!n) return create_error_string("factorint", "null input");
+    fmpz_t x;
+    fmpz_init(x);
+    if (fmpz_set_str(x, n, 10) != 0) {
+        fmpz_clear(x);
+        return create_error_string("factorint", "parse failed");
+    }
+    // Bit-size cap. 90 bits ≈ 27 decimal digits — comfortable
+    // headroom for any classroom example, while still ruling out
+    // a 200-digit RSA modulus.
+    if (fmpz_sizeinbase(x, 2) > 90) {
+        fmpz_clear(x);
+        return create_error_string("factorint",
+            "input too large (max ~90 bits / 27 digits)");
+    }
+    // Trivial cases: 0 and ±1 have no prime factors.
+    if (fmpz_is_zero(x)) {
+        fmpz_clear(x);
+        return strdup("0");
+    }
+    // Compute |x| for factoring; record sign separately.
+    int neg = (fmpz_sgn(x) < 0);
+    if (neg) fmpz_neg(x, x);
+    if (fmpz_is_one(x)) {
+        fmpz_clear(x);
+        return strdup(neg ? "-1" : "1");
+    }
+    fmpz_factor_t f;
+    fmpz_factor_init(f);
+    fmpz_factor(f, x);
+    // Build the output string. Allocate generously; one prime
+    // factor takes at most fmpz_sizeinbase digits.
+    size_t cap = 32 + (size_t)f->num * 64;
+    char* buf = (char*)malloc(cap);
+    if (!buf) {
+        fmpz_factor_clear(f);
+        fmpz_clear(x);
+        return create_error_string("factorint", "malloc failed");
+    }
+    size_t pos = 0;
+    if (neg) {
+        pos += (size_t)snprintf(buf + pos, cap - pos, "-1*");
+    }
+    for (slong i = 0; i < f->num; i++) {
+        // f->p is a fmpz array; address arithmetic gives a pointer
+        // to the i-th prime. fmpz_get_str(NULL, ...) allocates.
+        char* prime_str = fmpz_get_str(NULL, 10, f->p + i);
+        size_t need = strlen(prime_str) + 32; // "^N*" plus margin
+        if (pos + need >= cap) {
+            cap = (pos + need) * 2;
+            char* grown = realloc(buf, cap);
+            if (!grown) {
+                free(prime_str);
+                free(buf);
+                fmpz_factor_clear(f);
+                fmpz_clear(x);
+                return create_error_string("factorint", "realloc failed");
+            }
+            buf = grown;
+        }
+        if (i > 0) {
+            buf[pos++] = '*';
+        }
+        size_t plen = strlen(prime_str);
+        memcpy(buf + pos, prime_str, plen);
+        pos += plen;
+        free(prime_str);
+        if (f->exp[i] > 1) {
+            pos += (size_t)snprintf(buf + pos, cap - pos, "^%lu",
+                (unsigned long)f->exp[i]);
+        }
+    }
+    buf[pos] = '\0';
+    fmpz_factor_clear(f);
+    fmpz_clear(x);
+    return buf;
+}
+
 // --- Matrix Operations (Opaque Pointers) ---
 
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {

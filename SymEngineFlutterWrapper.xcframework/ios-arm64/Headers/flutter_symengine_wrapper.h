@@ -71,6 +71,12 @@ char* flutter_symengine_isprime(const char* n);
 char* flutter_symengine_nextprime(const char* n);
 char* flutter_symengine_prevprime(const char* n);
 
+// Integer factorization (round 90). Returns "p1^e1*p2^e2*..."
+// (with "^1" omitted) or "0" / "1" / "-1" for trivial cases.
+// Inputs up to ~90 bits / 27 decimal digits; larger values are
+// rejected to keep the per-call time bounded.
+char* flutter_symengine_factorint(const char* n);
+
 // Matrix operations (using opaque pointers for memory safety)
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols);
 void flutter_symengine_matrix_free(CDenseMatrix* matrix);

@@ -433,6 +433,48 @@ char* flutter_symengine_evalf_with_precision(const char* expression,
     return s;
 }
 
+// Bessel functions of the first (J) and second (Y) kind, integer order,
+// real argument — computed directly via MPFR (mpfr_jn / mpfr_yn), since
+// SymEngine has no Bessel functions. `order` is the integer order n;
+// `x_str` is the (decimal) real argument. Returns the value as a
+// ~15-significant-digit string (double precision is what the grapher
+// consumes; the calculator shows the same). Used by the calculator's
+// `besselj(n, x)` / `bessely(n, x)` and the graphing path.
+#include <mpfr.h>
+
+static char* bessel_eval(int order, const char* x_str, int kind,
+                         const char* op) {
+    if (!x_str) return create_error_string(op, "null argument");
+    mpfr_t x, result;
+    mpfr_init2(x, 64);
+    mpfr_init2(result, 64);
+    if (mpfr_set_str(x, x_str, 10, MPFR_RNDN) != 0) {
+        mpfr_clear(x);
+        mpfr_clear(result);
+        return create_error_string(op, "argument parse failed");
+    }
+    // kind 0 = J (first kind), kind 1 = Y (second kind).
+    if (kind == 0) {
+        mpfr_jn(result, (long)order, x, MPFR_RNDN);
+    } else {
+        mpfr_yn(result, (long)order, x, MPFR_RNDN);
+    }
+    double d = mpfr_get_d(result, MPFR_RNDN);
+    mpfr_clear(x);
+    mpfr_clear(result);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%.15g", d);
+    return strdup(buf);
+}
+
+char* flutter_symengine_besselj(int order, const char* x_str) {
+    return bessel_eval(order, x_str, 0, "besselj");
+}
+
+char* flutter_symengine_bessely(int order, const char* x_str) {
+    return bessel_eval(order, x_str, 1, "bessely");
+}
+
 // Shared helper macro: evalf a basic-producing constructor at the
 // requested decimal precision and return the result as a malloc'd
 // string. The `ctor` argument is a statement that populates `sym`.

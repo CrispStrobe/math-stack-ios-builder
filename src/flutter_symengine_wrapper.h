@@ -66,6 +66,11 @@ char* flutter_symengine_sqrt2_with_precision(int decimal_digits);
 // expression (real-valued); backs the calculator's `evalf(expr, N)`.
 char* flutter_symengine_evalf_with_precision(const char* expression,
                                              int decimal_digits);
+// Bessel functions of the first (J) and second (Y) kind, integer order,
+// real argument, via MPFR (SymEngine has no Bessel). Back the
+// calculator/grapher `besselj(n, x)` / `bessely(n, x)`.
+char* flutter_symengine_besselj(int order, const char* x_str);
+char* flutter_symengine_bessely(int order, const char* x_str);
 
 // Number-theory primitives (round 89). All take arbitrary-
 // precision decimal strings. `isprime` returns "true" / "false";

@@ -609,6 +609,150 @@ char* flutter_symengine_factorint(const char* n) {
     return buf;
 }
 
+// Round 4 (precision arc): modular arithmetic + multiplicative
+// number theory. modpow / modinv / jacobi go straight to GMP —
+// SymEngine's cwrapper exposes ntheory_mod_inverse but neither powm
+// nor the Jacobi symbol, and the __gmpz_* family is already kept
+// alive (round 13). totient uses FLINT's fmpz_euler_phi. All four
+// keep the arbitrary-precision string contract of the round-89/90
+// ntheory family.
+
+char* flutter_symengine_modpow(const char* a, const char* e, const char* m) {
+    if (!a || !e || !m) return create_error_string("modpow", "null input");
+    mpz_t base, exp, mod, res;
+    if (mpz_init_set_str(base, a, 10) != 0) {
+        mpz_clear(base);
+        return create_error_string("modpow", "parse failed (a)");
+    }
+    if (mpz_init_set_str(exp, e, 10) != 0) {
+        mpz_clear(base);
+        mpz_clear(exp);
+        return create_error_string("modpow", "parse failed (e)");
+    }
+    if (mpz_init_set_str(mod, m, 10) != 0) {
+        mpz_clear(base);
+        mpz_clear(exp);
+        mpz_clear(mod);
+        return create_error_string("modpow", "parse failed (m)");
+    }
+    if (mpz_sgn(mod) <= 0) {
+        mpz_clear(base);
+        mpz_clear(exp);
+        mpz_clear(mod);
+        return create_error_string("modpow", "modulus must be positive");
+    }
+    mpz_init(res);
+    // GMP's mpz_powm raises a hardware divide-by-zero (SIGFPE — which
+    // would take down the host app) on a negative exponent when the
+    // base has no inverse mod m. Guard it: invert the base ourselves
+    // first and fail gracefully when gcd(a, m) != 1.
+    if (mpz_sgn(exp) < 0) {
+        if (mpz_invert(base, base, mod) == 0) {
+            mpz_clear(base);
+            mpz_clear(exp);
+            mpz_clear(mod);
+            mpz_clear(res);
+            return create_error_string("modpow",
+                "negative exponent requires gcd(a, m) = 1");
+        }
+        mpz_neg(exp, exp);
+    }
+    mpz_powm(res, base, exp, mod);
+    char* s = mpz_get_str(NULL, 10, res);
+    mpz_clear(base);
+    mpz_clear(exp);
+    mpz_clear(mod);
+    mpz_clear(res);
+    return s;
+}
+
+char* flutter_symengine_modinv(const char* a, const char* m) {
+    if (!a || !m) return create_error_string("modinv", "null input");
+    mpz_t base, mod, res;
+    if (mpz_init_set_str(base, a, 10) != 0) {
+        mpz_clear(base);
+        return create_error_string("modinv", "parse failed (a)");
+    }
+    if (mpz_init_set_str(mod, m, 10) != 0) {
+        mpz_clear(base);
+        mpz_clear(mod);
+        return create_error_string("modinv", "parse failed (m)");
+    }
+    if (mpz_sgn(mod) <= 0) {
+        mpz_clear(base);
+        mpz_clear(mod);
+        return create_error_string("modinv", "modulus must be positive");
+    }
+    mpz_init(res);
+    // mpz_invert returns non-zero and stores res in [0, mod) when the
+    // inverse exists; 0 when gcd(a, m) != 1.
+    if (mpz_invert(res, base, mod) == 0) {
+        mpz_clear(base);
+        mpz_clear(mod);
+        mpz_clear(res);
+        return create_error_string("modinv", "no inverse: gcd(a, m) != 1");
+    }
+    char* s = mpz_get_str(NULL, 10, res);
+    mpz_clear(base);
+    mpz_clear(mod);
+    mpz_clear(res);
+    return s;
+}
+
+char* flutter_symengine_totient(const char* n) {
+    if (!n) return create_error_string("totient", "null input");
+    fmpz_t x, res;
+    fmpz_init(x);
+    if (fmpz_set_str(x, n, 10) != 0) {
+        fmpz_clear(x);
+        return create_error_string("totient", "parse failed");
+    }
+    if (fmpz_sgn(x) <= 0) {
+        fmpz_clear(x);
+        return create_error_string("totient", "n must be positive");
+    }
+    // phi(n) needs n's factorization internally, so it is as costly as
+    // factorint — apply the same ~90-bit guard so the UI can't hang.
+    if (fmpz_sizeinbase(x, 2) > 90) {
+        fmpz_clear(x);
+        return create_error_string("totient",
+            "input too large (max ~90 bits / 27 digits)");
+    }
+    fmpz_init(res);
+    fmpz_euler_phi(res, x);
+    char* s = fmpz_get_str(NULL, 10, res);
+    fmpz_clear(x);
+    fmpz_clear(res);
+    return s;
+}
+
+char* flutter_symengine_jacobi(const char* a, const char* n) {
+    if (!a || !n) return create_error_string("jacobi", "null input");
+    mpz_t top, bot;
+    if (mpz_init_set_str(top, a, 10) != 0) {
+        mpz_clear(top);
+        return create_error_string("jacobi", "parse failed (a)");
+    }
+    if (mpz_init_set_str(bot, n, 10) != 0) {
+        mpz_clear(top);
+        mpz_clear(bot);
+        return create_error_string("jacobi", "parse failed (n)");
+    }
+    // The Jacobi symbol (a/n) is defined only for odd n > 0; GMP's
+    // mpz_jacobi has undefined behaviour outside that domain.
+    if (mpz_sgn(bot) <= 0 || mpz_even_p(bot)) {
+        mpz_clear(top);
+        mpz_clear(bot);
+        return create_error_string("jacobi", "n must be odd and positive");
+    }
+    int j = mpz_jacobi(top, bot);
+    mpz_clear(top);
+    mpz_clear(bot);
+    char out[8];
+    snprintf(out, sizeof(out), "%d", j);
+    return strdup(out);
+}
+
 // --- Matrix Operations (Opaque Pointers) ---
 
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {

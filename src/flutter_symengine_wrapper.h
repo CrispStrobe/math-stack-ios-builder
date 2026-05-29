@@ -77,6 +77,21 @@ char* flutter_symengine_prevprime(const char* n);
 // rejected to keep the per-call time bounded.
 char* flutter_symengine_factorint(const char* n);
 
+// Modular arithmetic + multiplicative number theory (round 4 of the
+// precision arc). All take arbitrary-precision decimal strings and
+// return a decimal string ("true"/"false"-style errors come back as
+// the standard "Error: ..." payload). Caller frees with
+// `flutter_symengine_free_string`.
+//   modpow(a, e, m)  -> a^e mod m   (m > 0; e may be negative if a is
+//                                    invertible mod m)
+//   modinv(a, m)     -> a^-1 mod m  (errors when gcd(a, m) != 1)
+//   totient(n)       -> Euler's phi(n)               (n >= 1)
+//   jacobi(a, n)     -> Jacobi symbol (a/n) as -1/0/1 (n odd, n > 0)
+char* flutter_symengine_modpow(const char* a, const char* e, const char* m);
+char* flutter_symengine_modinv(const char* a, const char* m);
+char* flutter_symengine_totient(const char* n);
+char* flutter_symengine_jacobi(const char* a, const char* n);
+
 // Matrix operations (using opaque pointers for memory safety)
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols);
 void flutter_symengine_matrix_free(CDenseMatrix* matrix);

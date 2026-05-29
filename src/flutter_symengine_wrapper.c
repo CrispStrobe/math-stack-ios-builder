@@ -397,6 +397,42 @@ char* flutter_symengine_pi_with_precision(int decimal_digits) {
     return result;
 }
 
+// Generic arbitrary-precision numeric evaluation: parse `expression`
+// and evalf it to `decimal_digits` digits via MPFR (real path). Powers
+// the calculator's `evalf(expr, N)` — e.g. `evalf(ln(10), 100)`,
+// `evalf(zeta(2), 50)`, `evalf(sqrt(2)+sqrt(3), 80)`. A non-real result
+// is rejected (the high-precision complex / MPC path is separate); for
+// those the 53-bit `flutter_symengine_evaluate` still applies.
+char* flutter_symengine_evalf_with_precision(const char* expression,
+                                             int decimal_digits) {
+    if (!expression) {
+        return create_error_string("evalf_with_precision", "null expression");
+    }
+    if (decimal_digits < 1 || decimal_digits > 10000) {
+        return create_error_string("evalf_with_precision",
+            "decimal_digits must be in 1..10000");
+    }
+    basic expr, result;
+    basic_new_stack(expr);
+    basic_new_stack(result);
+    if (basic_parse(expr, expression) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(expr);
+        basic_free_stack(result);
+        return create_error_string("evalf_with_precision", "parse failed");
+    }
+    unsigned long bits = (unsigned long)((double)decimal_digits * 3.322) + 8;
+    if (basic_evalf(result, expr, bits, 1) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(expr);
+        basic_free_stack(result);
+        return create_error_string("evalf_with_precision",
+            "evalf failed (non-real or not numerically evaluable)");
+    }
+    char* s = basic_to_string_safe(result);
+    basic_free_stack(expr);
+    basic_free_stack(result);
+    return s;
+}
+
 // Shared helper macro: evalf a basic-producing constructor at the
 // requested decimal precision and return the result as a malloc'd
 // string. The `ctor` argument is a statement that populates `sym`.

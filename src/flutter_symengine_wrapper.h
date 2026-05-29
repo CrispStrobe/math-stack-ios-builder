@@ -62,6 +62,10 @@ char* flutter_symengine_pi_with_precision(int decimal_digits);
 char* flutter_symengine_e_with_precision(int decimal_digits);
 char* flutter_symengine_euler_gamma_with_precision(int decimal_digits);
 char* flutter_symengine_sqrt2_with_precision(int decimal_digits);
+// Generic arbitrary-precision numeric evaluation of any parseable
+// expression (real-valued); backs the calculator's `evalf(expr, N)`.
+char* flutter_symengine_evalf_with_precision(const char* expression,
+                                             int decimal_digits);
 
 // Number-theory primitives (round 89). All take arbitrary-
 // precision decimal strings. `isprime` returns "true" / "false";

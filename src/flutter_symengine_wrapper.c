@@ -433,6 +433,42 @@ char* flutter_symengine_evalf_with_precision(const char* expression,
     return s;
 }
 
+// Complex counterpart of evalf_with_precision: parse `expression` and
+// evalf it to `decimal_digits` digits via the MPC (complex) path
+// (basic_evalf real=0). Handles complex-valued expressions —
+// cevalf((1+I)^10, 30), cevalf(sqrt(-2), 50), cevalf(gamma(1+I), 40) —
+// returning SymEngine's "a + b*I" string. The 53-bit complex path is
+// the same one flutter_symengine_evaluate already uses.
+char* flutter_symengine_cevalf_with_precision(const char* expression,
+                                              int decimal_digits) {
+    if (!expression) {
+        return create_error_string("cevalf_with_precision", "null expression");
+    }
+    if (decimal_digits < 1 || decimal_digits > 10000) {
+        return create_error_string("cevalf_with_precision",
+            "decimal_digits must be in 1..10000");
+    }
+    basic expr, result;
+    basic_new_stack(expr);
+    basic_new_stack(result);
+    if (basic_parse(expr, expression) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(expr);
+        basic_free_stack(result);
+        return create_error_string("cevalf_with_precision", "parse failed");
+    }
+    unsigned long bits = (unsigned long)((double)decimal_digits * 3.322) + 8;
+    if (basic_evalf(result, expr, bits, 0) != SYMENGINE_NO_EXCEPTION) {
+        basic_free_stack(expr);
+        basic_free_stack(result);
+        return create_error_string("cevalf_with_precision",
+            "evalf failed (not numerically evaluable)");
+    }
+    char* s = basic_to_string_safe(result);
+    basic_free_stack(expr);
+    basic_free_stack(result);
+    return s;
+}
+
 // Bessel functions of the first (J) and second (Y) kind, integer order,
 // real argument — computed directly via MPFR (mpfr_jn / mpfr_yn), since
 // SymEngine has no Bessel functions. `order` is the integer order n;

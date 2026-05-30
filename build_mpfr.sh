@@ -37,7 +37,7 @@ readonly IOS_MIN_VERSION="13.0"
 readonly MACOS_MIN_VERSION="10.15"
 
 # --- Functions ---
-# shellcheck disable=SC2329
+# shellcheck disable=SC2329,SC2317
 cleanup() {
     echo "[CLEANUP] MPFR build script finished."
 }

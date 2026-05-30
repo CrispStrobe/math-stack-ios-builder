@@ -26,7 +26,7 @@ readonly IOS_MIN_VERSION="13.0"
 readonly MACOS_MIN_VERSION="10.15"
 
 # --- Utility Functions ---
-# shellcheck disable=SC2329
+# shellcheck disable=SC2329,SC2317
 cleanup() { echo "[CLEANUP] GMP build script finished."; }
 trap cleanup EXIT
 logMsg() { printf "[GMP BUILD] %s\n" "$1"; }

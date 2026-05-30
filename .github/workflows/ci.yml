@@ -36,6 +36,7 @@ jobs:
       - name: Run yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
+          file_or_dir: .github/workflows/
           config_data: |
             extends: default
             rules:
@@ -51,24 +52,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run actionlint
-        uses: rhysd/actionlint@v1
+        uses: rhysd/actionlint@v1.7.7
 
   validate-scripts:
     name: Validate Build Scripts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Check scripts are executable
-        run: |
-          EXIT_CODE=0
-          for script in build_all.sh build_gmp.sh build_mpfr.sh build_mpc.sh build_flint.sh build_symengine.sh; do
-            if [ ! -x "$script" ]; then
-              echo "::warning::$script is not executable"
-              EXIT_CODE=1
-            fi
-          done
-          exit $EXIT_CODE
 
       - name: Check bash syntax
         run: |

@@ -10,7 +10,8 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Configuration ---
-readonly SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-mpc"
 readonly LIBDIR="$BUILDDIR/lib"
 readonly HEADERDIR="$BUILDDIR/include"
@@ -38,6 +39,7 @@ readonly MACOS_MIN_VERSION="10.15"
 
 # --- Utility Functions ---
 
+# shellcheck disable=SC2329
 cleanup() {
     echo "[CLEANUP] MPC build script finished."
 }
@@ -233,8 +235,9 @@ createXCFramework() {
 
     # Edit the manifest (Info.plist) to reflect the new, consistent binary names
     local PLIST_PATH="$framework_dir/Info.plist"
-    local COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
-    for (( i=0; i<$COUNT; i++ )); do
+    local COUNT
+    COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
+    for (( i=0; i<COUNT; i++ )); do
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:BinaryPath $framework_name" "$PLIST_PATH"
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:LibraryPath $framework_name" "$PLIST_PATH"
     done

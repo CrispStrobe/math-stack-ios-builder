@@ -13,7 +13,8 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Configuration ---
-readonly SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-mpfr"
 readonly LIBDIR="$BUILDDIR/lib"
 readonly HEADERDIR="$BUILDDIR/include"
@@ -36,6 +37,7 @@ readonly IOS_MIN_VERSION="13.0"
 readonly MACOS_MIN_VERSION="10.15"
 
 # --- Functions ---
+# shellcheck disable=SC2329
 cleanup() {
     echo "[CLEANUP] MPFR build script finished."
 }
@@ -211,8 +213,9 @@ createFramework() {
 
     # Edit the manifest (Info.plist)
     local PLIST_PATH="$framework_dir/Info.plist"
-    local COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
-    for (( i=0; i<$COUNT; i++ )); do
+    local COUNT
+    COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
+    for (( i=0; i<COUNT; i++ )); do
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:BinaryPath $framework_name" "$PLIST_PATH"
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:LibraryPath $framework_name" "$PLIST_PATH"
     done

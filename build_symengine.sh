@@ -7,14 +7,14 @@
 set -e
 
 # --- Configuration ---
-readonly SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-symengine"
 readonly LIBDIR="$BUILDDIR/lib"
 
 readonly COMBINED_LIB_BASENAME="symengine_flutter_wrapper" 
 
 readonly HEADERDIR_FINAL="$BUILDDIR/include"
-readonly LIBNAME="symengine"
 readonly VERSION_SYMENGINE="0.11.2"
 readonly SYMENGINE_SOURCE="$SCRIPTDIR/symengine-$VERSION_SYMENGINE"
 
@@ -37,6 +37,7 @@ readonly IOS_MIN_VERSION="13.0"
 readonly MACOS_MIN_VERSION="10.15"
 
 # --- Utility Functions ---
+# shellcheck disable=SC2329
 cleanup() { echo "[CLEANUP] SymEngine build script finished."; }
 trap cleanup EXIT
 
@@ -100,7 +101,8 @@ configureAndMake() {
     logMsg "Configuring SymEngine + Wrapper for PLATFORM: $platform, ARCH: $arch"
     logMsg "================================================================="
 
-    local sdkpath=$(xcrun --sdk "$platform" --show-sdk-path)
+    local sdkpath
+    sdkpath=$(xcrun --sdk "$platform" --show-sdk-path)
     rm -rf "$build_dir"; mkdir -p "$build_dir"; cd "$build_dir"
     copyFlutterWrapperToDir "$build_dir"
 
@@ -120,18 +122,22 @@ configureAndMake() {
     cmake "$SYMENGINE_SOURCE" -DCMAKE_C_COMPILER="$(xcrun --sdk "$platform" -f clang)" -DCMAKE_CXX_COMPILER="$(xcrun --sdk "$platform" -f clang++)" "${cmake_args[@]}"
     make -j"$(sysctl -n hw.ncpu)"
 
-    local target_cc=$(xcrun --sdk "$platform" -f clang); local target_cflags
+    local target_cc
+    target_cc=$(xcrun --sdk "$platform" -f clang)
+    local target_cflags
     if [[ "$platform" == "iphoneos" ]]; then target_cflags="-arch $arch -isysroot $sdkpath -miphoneos-version-min=$IOS_MIN_VERSION"; elif [[ "$platform" == "iphonesimulator" ]]; then target_cflags="-arch $arch -isysroot $sdkpath -mios-simulator-version-min=$IOS_MIN_VERSION"; else target_cflags="-arch $arch -isysroot $sdkpath -mmacosx-version-min=$MACOS_MIN_VERSION"; fi
     target_cflags="$target_cflags -I$SYMENGINE_SOURCE -I$build_dir -I$GMP_BUILDDIR/include -I$MPFR_BUILDDIR/include -I$MPC_BUILDDIR/include -I$FLINT_BUILDDIR/include"
+    # shellcheck disable=SC2086
     "$target_cc" $target_cflags -c "flutter_symengine_wrapper.c" -o "flutter_symengine_wrapper.o"
     
-    local symengine_lib=$(find . -name "libsymengine.a" -type f | head -1)
+    local symengine_lib
+    symengine_lib=$(find . -name "libsymengine.a" -type f | head -1)
     if [ -z "$symengine_lib" ]; then errorExit "Could not find built SymEngine library."; fi
 
     mkdir -p temp_extract; cd temp_extract
     ar x "../$symengine_lib"
     cp "../flutter_symengine_wrapper.o" .
-    ar rcs "../lib${COMBINED_LIB_BASENAME}.a" *.o
+    ar rcs "../lib${COMBINED_LIB_BASENAME}.a" ./*.o
     cd ..; rm -rf temp_extract
 
     mkdir -p "$LIBDIR"
@@ -174,8 +180,9 @@ createFlutterWrapperXCFramework() {
     mv "$framework_dir/macos-arm64_x86_64/$(basename "$mac_universal_lib")" "$framework_dir/macos-arm64_x86_64/$consistent_binary_name"
 
     local PLIST_PATH="$framework_dir/Info.plist"
-    local COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
-    for (( i=0; i<$COUNT; i++ )); do
+    local COUNT
+    COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
+    for (( i=0; i<COUNT; i++ )); do
         # Update Info.plist to point to the consistent name.
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:BinaryPath $consistent_binary_name" "$PLIST_PATH"
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:LibraryPath $consistent_binary_name" "$PLIST_PATH"

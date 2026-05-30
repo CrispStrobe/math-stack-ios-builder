@@ -1,1 +1,29 @@
-build
+# Build output directories
+build/
+build-*/
+
+# XCFrameworks (generated artifacts)
+*.xcframework/
+
+# Downloaded source tarballs
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+
+# Extracted source directories
+gmp-*/
+mpfr-*/
+mpc-*/
+flint-*/
+symengine-*/
+
+# Build artifacts
+*.o
+*.a
+*.lo
+
+# macOS
+.DS_Store
+
+# Stray header artifacts
+gmp.h

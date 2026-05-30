@@ -11,7 +11,8 @@
 #############################################################################
 set -e
 
-readonly SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+readonly SCRIPTDIR
 
 logMsg() {
     echo "================================================================="
@@ -40,6 +41,6 @@ logMsg "Building SymEngine + Flutter Wrapper (depends on all others)..."
 
 logMsg "✅ All libraries built successfully!"
 logMsg "The following XCFrameworks have been created and are ready for use:"
-ls -d *.xcframework
+ls -d ./*.xcframework
 
 exit 0

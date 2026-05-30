@@ -1,0 +1,78 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: .
+          additional_files: build_all.sh build_gmp.sh build_mpfr.sh build_mpc.sh build_flint.sh build_symengine.sh
+
+  yamllint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: |
+            extends: default
+            rules:
+              line-length:
+                max: 200
+              truthy: disable
+              document-start: disable
+
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1
+
+  validate-scripts:
+    name: Validate Build Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check scripts are executable
+        run: |
+          EXIT_CODE=0
+          for script in build_all.sh build_gmp.sh build_mpfr.sh build_mpc.sh build_flint.sh build_symengine.sh; do
+            if [ ! -x "$script" ]; then
+              echo "::warning::$script is not executable"
+              EXIT_CODE=1
+            fi
+          done
+          exit $EXIT_CODE
+
+      - name: Check bash syntax
+        run: |
+          for script in build_all.sh build_gmp.sh build_mpfr.sh build_mpc.sh build_flint.sh build_symengine.sh; do
+            echo "Checking $script..."
+            bash -n "$script"
+          done

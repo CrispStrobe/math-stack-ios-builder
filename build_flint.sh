@@ -10,7 +10,8 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Configuration ---
-readonly SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-flint"
 readonly LIBDIR="$BUILDDIR/lib"
 readonly HEADERDIR="$BUILDDIR/include"
@@ -36,6 +37,7 @@ readonly IOS_MIN_VERSION="13.0"
 readonly MACOS_MIN_VERSION="10.15"
 
 # --- Utility Functions ---
+# shellcheck disable=SC2329
 cleanup() { echo "[CLEANUP] FLINT build script finished."; }
 trap cleanup EXIT
 
@@ -70,10 +72,12 @@ configureAndMake() {
     
     unset CC CXX CFLAGS CXXFLAGS LDFLAGS LIBS SDKROOT CC_FOR_BUILD
     
-    local sdkpath=$(xcrun --sdk "$platform" --show-sdk-path)
+    local sdkpath
+    sdkpath=$(xcrun --sdk "$platform" --show-sdk-path)
     if [ ! -d "$sdkpath" ]; then errorExit "SDK path for '$platform' not found."; fi
-    
-    local target_cc=$(xcrun --sdk "$platform" -f clang)
+
+    local target_cc
+    target_cc=$(xcrun --sdk "$platform" -f clang)
     local temp_lib_dir="$BUILDDIR/temp-deps-$platform-$arch"
     mkdir -p "$temp_lib_dir"
     ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.a" "$temp_lib_dir/libgmp.a"
@@ -99,7 +103,8 @@ configureAndMake() {
       make distclean &> /dev/null || true
     fi
     
-    local host_triplet=$([[ "$arch" == "arm64" ]] && echo "aarch64" || echo "$arch")-apple-darwin
+    local host_triplet
+    host_triplet=$([[ "$arch" == "arm64" ]] && echo "aarch64" || echo "$arch")-apple-darwin
     local configure_args=(
         "--host=$host_triplet"
         "--disable-shared"
@@ -171,8 +176,9 @@ createXCFramework() {
 
     # Edit the manifest (Info.plist) to reflect the new, consistent binary names
     local PLIST_PATH="$framework_dir/Info.plist"
-    local COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
-    for (( i=0; i<$COUNT; i++ )); do
+    local COUNT
+    COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
+    for (( i=0; i<COUNT; i++ )); do
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:BinaryPath $framework_name" "$PLIST_PATH"
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:LibraryPath $framework_name" "$PLIST_PATH"
     done

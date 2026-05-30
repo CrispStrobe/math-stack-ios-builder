@@ -11,7 +11,8 @@
 set -e
 
 # --- Configuration ---
-readonly SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
+readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-gmp"
 readonly LIBDIR="$BUILDDIR/lib"
 readonly HEADERDIR="$BUILDDIR/include"
@@ -25,6 +26,7 @@ readonly IOS_MIN_VERSION="13.0"
 readonly MACOS_MIN_VERSION="10.15"
 
 # --- Utility Functions ---
+# shellcheck disable=SC2329
 cleanup() { echo "[CLEANUP] GMP build script finished."; }
 trap cleanup EXIT
 logMsg() { printf "[GMP BUILD] %s\n" "$1"; }
@@ -47,10 +49,12 @@ configureAndMake() {
     
     unset CC CXX CFLAGS CXXFLAGS LDFLAGS LIBS SDKROOT CC_FOR_BUILD
     
-    local sdkpath=$(xcrun --sdk "$platform" --show-sdk-path)
+    local sdkpath
+    sdkpath=$(xcrun --sdk "$platform" --show-sdk-path)
     if [ ! -d "$sdkpath" ]; then errorExit "SDK path not found for platform '$platform'."; fi
-    
-    local target_cc=$(xcrun --sdk "$platform" -f clang)
+
+    local target_cc
+    target_cc=$(xcrun --sdk "$platform" -f clang)
     local target_cflags; local target_ldflags
     
     if [[ "$platform" == "iphoneos" ]]; then
@@ -67,7 +71,8 @@ configureAndMake() {
     cd "$extractdir"
     make distclean &> /dev/null || true
     
-    local host_triplet=$([[ "$arch" == "arm64" ]] && echo "aarch64" || echo "$arch")-apple-darwin
+    local host_triplet
+    host_triplet=$([[ "$arch" == "arm64" ]] && echo "aarch64" || echo "$arch")-apple-darwin
     local configure_args=("--host=$host_triplet" "--disable-assembly" "--enable-static" "--disable-shared")
     if [[ "$platform" != "macosx" ]]; then
         configure_args+=("--build=$(uname -m)-apple-darwin")
@@ -115,8 +120,9 @@ createXCFramework() {
     mv "$framework_dir/macos-arm64_x86_64/libgmp-macosx-universal.a" "$framework_dir/macos-arm64_x86_64/$consistent_binary_name"
 
     local PLIST_PATH="$framework_dir/Info.plist"
-    local COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
-    for (( i=0; i<$COUNT; i++ )); do
+    local COUNT
+    COUNT=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:" "$PLIST_PATH" | grep -c "Dict")
+    for (( i=0; i<COUNT; i++ )); do
         
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:BinaryPath $consistent_binary_name" "$PLIST_PATH"
         /usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$i:LibraryPath $consistent_binary_name" "$PLIST_PATH"

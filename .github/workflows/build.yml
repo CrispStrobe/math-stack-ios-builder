@@ -1,0 +1,69 @@
+---
+name: Build XCFrameworks
+
+# Builds the full math stack on macOS. Requires Xcode + CMake.
+# Triggered manually or on tagged releases — too heavy for every push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      libraries:
+        description: 'Libraries to build (all, gmp, mpfr, mpc, flint, symengine)'
+        required: false
+        default: 'all'
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on macOS
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install autoconf autoconf-archive automake libtool cmake ninja
+
+      - name: Print tool versions
+        run: |
+          echo "Xcode: $(xcodebuild -version | head -1)"
+          echo "CMake: $(cmake --version | head -1)"
+          echo "Ninja: $(ninja --version)"
+          echo "SDK (iphoneos): $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "SDK (macosx): $(xcrun --sdk macosx --show-sdk-version)"
+
+      - name: Build
+        run: |
+          LIBS="${{ github.event.inputs.libraries || 'all' }}"
+          if [ "$LIBS" = "all" ]; then
+            bash build_all.sh
+          else
+            for lib in $(echo "$LIBS" | tr ',' ' '); do
+              bash "build_${lib}.sh"
+            done
+          fi
+
+      - name: List built frameworks
+        run: |
+          echo "--- XCFrameworks produced ---"
+          for fw in ./*.xcframework; do
+            if [ -d "$fw" ]; then
+              echo "$fw ($(du -sh "$fw" | cut -f1))"
+              find "$fw" -name '*.a' -exec ls -lh {} \;
+            fi
+          done
+
+      - name: Upload XCFrameworks
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcframeworks-${{ github.sha }}
+          path: '*.xcframework/'
+          if-no-files-found: warn
+          retention-days: 30

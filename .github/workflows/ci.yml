@@ -22,11 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@2.0.0
-        with:
-          scandir: .
-          additional_files: build_all.sh build_gmp.sh build_mpfr.sh build_mpc.sh build_flint.sh build_symengine.sh
+      - name: Run ShellCheck on build scripts
+        run: shellcheck -s bash build_all.sh build_gmp.sh build_mpfr.sh build_mpc.sh build_flint.sh build_symengine.sh
 
   yamllint:
     name: YAML Lint

@@ -21,6 +21,17 @@
 #define WASM_EXPORT
 #endif
 
+// GMP/MPFR/FLINT-backed functions (number theory, high precision, Bessel,
+// real factor) are available on native always, and on WASM only when the
+// build links the WASM-compiled math stack (the `-DWASM_WITH_FLINT` build).
+// The default boostmp WASM build leaves SYM_HAS_NATIVE_LIBS = 0 and keeps
+// the stubs.
+#if !defined(__EMSCRIPTEN__) || defined(WASM_WITH_FLINT)
+#define SYM_HAS_NATIVE_LIBS 1
+#else
+#define SYM_HAS_NATIVE_LIBS 0
+#endif
+
 // --- Helper Functions ---
 
 // Creates a formatted error string that must be freed by the caller.
@@ -191,7 +202,7 @@ WASM_EXPORT char* flutter_symengine_expand(const char* expression) {
     return result_str;
 }
 
-#ifndef __EMSCRIPTEN__
+#if SYM_HAS_NATIVE_LIBS
 // Real polynomial factorization lives in flutter_symengine_cas.cpp, which
 // uses SymEngine's C++ API + FLINT (fmpz_poly_factor). The C cwrapper.h
 // exposes no factorization, so this is the only way to get a true factor.
@@ -202,8 +213,8 @@ WASM_EXPORT char* flutter_symengine_factor(const char* expression) {
     return flutter_symengine_factor_cpp(expression);
 }
 #else
-// WASM build is boostmp without FLINT, so true factoring isn't available;
-// fall back to expand (the historical behavior on this target).
+// boostmp WASM build without FLINT — true factoring isn't available;
+// fall back to expand (the historical behavior on that target).
 WASM_EXPORT char* flutter_symengine_factor(const char* expression) {
     return flutter_symengine_expand(expression);
 }
@@ -243,10 +254,20 @@ WASM_EXPORT char* flutter_symengine_integrate(const char* expression, const char
     return create_error_string("integrate", "not implemented in SymEngine C API");
 }
 
+#if SYM_HAS_NATIVE_LIBS
+// SymEngine's real simplify() lives in flutter_symengine_cas.cpp (C++ only).
+extern char* flutter_symengine_simplify_cpp(const char* expression);
+
 WASM_EXPORT char* flutter_symengine_simplify(const char* expression) {
-    // "Simplification" is complex. `expand` is a common form of simplification.
+    if (!expression) return create_error_string("simplify", "null expression");
+    return flutter_symengine_simplify_cpp(expression);
+}
+#else
+WASM_EXPORT char* flutter_symengine_simplify(const char* expression) {
+    // boostmp WASM without the C++ simplify TU — expand is the closest.
     return flutter_symengine_expand(expression);
 }
+#endif
 
 WASM_EXPORT char* flutter_symengine_substitute(const char* expression, const char* symbol, const char* value) {
     if (!expression || !symbol || !value) return create_error_string("substitute", "null input");
@@ -398,8 +419,9 @@ WASM_EXPORT char* flutter_symengine_get_euler_gamma(void) {
 
 // --- Arbitrary-Precision Real Constants ---
 
-#ifndef __EMSCRIPTEN__
-// Native builds: full MPFR-backed arbitrary-precision evaluation.
+#if SYM_HAS_NATIVE_LIBS
+// Native (and FLINT-enabled WASM) builds: full GMP/MPFR/FLINT-backed
+// number theory, arbitrary-precision evaluation, and Bessel functions.
 
 char* flutter_symengine_pi_with_precision(int decimal_digits) {
     if (decimal_digits < 1 || decimal_digits > 10000) {

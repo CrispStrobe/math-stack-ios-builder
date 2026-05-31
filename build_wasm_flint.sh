@@ -31,6 +31,9 @@ fi
 
 # --- SymEngine -> WASM (INTEGER_CLASS=gmp, WITH_FLINT/MPFR/MPC) ----------
 SYMBUILD=$WASM/symengine-build
+if [ -f "$SYMBUILD/symengine/libsymengine.a" ] && [ -z "${FORCE_SYM:-}" ]; then
+  echo "=== SymEngine WASM cached (set FORCE_SYM=1 to rebuild) ==="
+else
 echo "=== SymEngine -> WASM (gmp+flint+mpfr+mpc) ==="
 rm -rf "$SYMBUILD"; mkdir -p "$SYMBUILD"; cd "$SYMBUILD"
 emcmake cmake "$SYMSRC" \
@@ -48,6 +51,7 @@ emcmake cmake "$SYMSRC" \
   || { echo "SYMENGINE CMAKE FAILED"; tail -30 /tmp/sym_cmake.log; exit 1; }
 emmake make -j"$NCPU" symengine >/tmp/sym_make.log 2>&1 \
   || { echo "SYMENGINE MAKE FAILED"; tail -40 /tmp/sym_make.log; exit 1; }
+fi
 SYMLIB=$(find "$SYMBUILD" -name libsymengine.a | head -1)
 echo "SymEngine OK: $SYMLIB"
 

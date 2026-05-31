@@ -1,15 +1,18 @@
 /*
  * flutter_symengine_cas.cpp
  *
- * C++ implementations that the C cwrapper.h API can't express. SymEngine's
- * C interface exposes no polynomial factorization, but the C++ core does
- * (FLINT-backed: fmpz_poly_factor). This file provides a real `factor` for
- * native builds (which link FLINT). It is NOT compiled for the Emscripten /
- * WASM target, which uses INTEGER_CLASS=boostmp without FLINT — there the C
- * wrapper keeps the historical expand-alias.
+ * C++ implementations the C cwrapper.h API can't express. Compiled for
+ * native builds and the FLINT-enabled WASM build (never the boostmp WASM,
+ * which has no FLINT). The result strings are malloc()'d so the existing
+ * Dart FFI free path works.
  *
- * The result string is malloc()'d so the existing Dart FFI free path works,
- * exactly like the C wrapper's other return values.
+ *  - flutter_symengine_factor_cpp: real polynomial factorization.
+ *      * univariate over Z  -> SymEngine UIntPolyFlint + FLINT fmpz_poly_factor
+ *      * multivariate over Z -> FLINT fmpz_mpoly_factor (SymEngine has no
+ *        multivariate FLINT wrapper, so we bridge MIntPoly -> fmpz_mpoly)
+ *      * anything else       -> expand (fallback)
+ *  - flutter_symengine_simplify_cpp: SymEngine's real simplify() (replaces
+ *      the historical expand-alias), with expand as a fallback.
  */
 
 #include <cstdlib>
@@ -24,22 +27,36 @@
 #include <symengine/parser.h>
 #include <symengine/pow.h>
 #include <symengine/printers.h>
+#include <symengine/symbol.h>
+#include <symengine/simplify.h>
+#include <symengine/visitor.h>
+#include <symengine/number.h>
+#include <symengine/constants.h>
 #include <symengine/polys/basic_conversions.h>
 #include <symengine/polys/uintpoly_flint.h>
+#include <symengine/polys/msymenginepoly.h>
+#include <symengine/polys/cancel.h>
+
+#include <flint/fmpz.h>
+#include <flint/fmpz_mpoly.h>
+#include <flint/fmpz_mpoly_factor.h>
 
 using SymEngine::Basic;
+using SymEngine::free_symbols;
 using SymEngine::from_basic;
 using SymEngine::integer;
 using SymEngine::integer_class;
+using SymEngine::is_a;
+using SymEngine::MIntPoly;
 using SymEngine::mul;
 using SymEngine::parse;
 using SymEngine::pow;
 using SymEngine::RCP;
+using SymEngine::set_basic;
 using SymEngine::str;
+using SymEngine::Symbol;
 using SymEngine::UIntPolyFlint;
 
-// The C wrapper's expand — reused as the fall-back when the input isn't a
-// univariate integer polynomial (multivariate, rational coeffs, etc.).
 extern "C" char *flutter_symengine_expand(const char *expression);
 
 static char *cas_dup(const std::string &s)
@@ -51,47 +68,203 @@ static char *cas_dup(const std::string &s)
     return out;
 }
 
+// --- univariate over Z via SymEngine + FLINT fmpz_poly_factor -----------
+static bool factor_univariate(const RCP<const Basic> &expr, std::string &out)
+{
+    RCP<const UIntPolyFlint> poly;
+    try {
+        poly = from_basic<UIntPolyFlint>(expr, true);
+    } catch (...) {
+        return false;
+    }
+    auto facs = SymEngine::factors(*poly);
+    if (facs.empty()) {
+        return false;
+    }
+    RCP<const Basic> product;
+    bool first = true;
+    for (const auto &fe : facs) {
+        RCP<const Basic> base = fe.first->as_symbolic();
+        RCP<const Basic> term = (fe.second == 1)
+                                    ? base
+                                    : pow(base, integer(integer_class(fe.second)));
+        product = first ? term : mul(product, term);
+        first = false;
+    }
+    out = str(*product);
+    return true;
+}
+
+// --- multivariate over Z via FLINT fmpz_mpoly_factor -------------------
+// SymEngine has no multivariate FLINT wrapper, so convert MIntPoly's
+// (exponent-vector -> integer) dict into a FLINT fmpz_mpoly, factor it, and
+// pretty-print each factor with the original variable names.
+static bool factor_multivariate(const RCP<const Basic> &expr, std::string &out)
+{
+    RCP<const MIntPoly> poly;
+    try {
+        set_basic gens = free_symbols(*expr);
+        if (gens.empty()) {
+            return false;
+        }
+        poly = from_basic<MIntPoly>(expr, gens, true);
+    } catch (...) {
+        return false;
+    }
+
+    const set_basic &vars = poly->get_vars();
+    const slong nv = static_cast<slong>(vars.size());
+    if (nv < 1) {
+        return false;
+    }
+
+    std::vector<std::string> names;
+    names.reserve(vars.size());
+    for (const auto &v : vars) {
+        if (!is_a<Symbol>(*v)) {
+            return false; // generator isn't a plain symbol — bail
+        }
+        names.push_back(static_cast<const Symbol &>(*v).get_name());
+    }
+    std::vector<const char *> cnames;
+    cnames.reserve(names.size());
+    for (const auto &n : names) {
+        cnames.push_back(n.c_str());
+    }
+
+    fmpz_mpoly_ctx_t ctx;
+    fmpz_mpoly_ctx_init(ctx, nv, ORD_LEX);
+    fmpz_mpoly_t A;
+    fmpz_mpoly_init(A, ctx);
+
+    for (const auto &kv : poly->get_poly().get_dict()) {
+        const auto &e = kv.first; // vec_uint, aligned to `vars` order
+        std::vector<ulong> exp(static_cast<size_t>(nv), 0);
+        for (slong i = 0; i < nv && i < static_cast<slong>(e.size()); i++) {
+            exp[static_cast<size_t>(i)] = static_cast<ulong>(e[static_cast<size_t>(i)]);
+        }
+        fmpz_t c;
+        fmpz_init(c);
+        // Portable across INTEGER_CLASS (flint native / gmp wasm): decimal str.
+        const std::string cs = str(*integer(kv.second));
+        fmpz_set_str(c, cs.c_str(), 10);
+        fmpz_mpoly_push_term_fmpz_ui(A, c, exp.data(), ctx);
+        fmpz_clear(c);
+    }
+    fmpz_mpoly_sort_terms(A, ctx);
+    fmpz_mpoly_combine_like_terms(A, ctx);
+
+    fmpz_mpoly_factor_t fac;
+    fmpz_mpoly_factor_init(fac, ctx);
+    bool ok = fmpz_mpoly_factor(fac, A, ctx) != 0;
+
+    if (ok) {
+        const slong n = fmpz_mpoly_factor_length(fac, ctx);
+        fmpz_t con;
+        fmpz_init(con);
+        fmpz_mpoly_factor_get_constant_fmpz(con, fac, ctx);
+        char *conStr = fmpz_get_str(NULL, 10, con);
+
+        std::vector<std::string> pieces;
+        if (std::strcmp(conStr, "1") != 0) {
+            pieces.push_back(conStr);
+        }
+        for (slong i = 0; i < n; i++) {
+            fmpz_mpoly_t base;
+            fmpz_mpoly_init(base, ctx);
+            fmpz_mpoly_factor_get_base(base, fac, i, ctx);
+            const slong e = fmpz_mpoly_factor_get_exp_si(fac, i, ctx);
+            char *ps = fmpz_mpoly_get_str_pretty(base, cnames.data(), ctx);
+            std::string piece = std::string("(") + ps + ")";
+            if (e != 1) {
+                piece += "^" + std::to_string(e);
+            }
+            pieces.push_back(piece);
+            flint_free(ps);
+            fmpz_mpoly_clear(base, ctx);
+        }
+        flint_free(conStr);
+        fmpz_clear(con);
+
+        // A single bare irreducible polynomial: drop the redundant parens.
+        if (pieces.size() == 1 && pieces[0].size() > 1 && pieces[0].front() == '(' &&
+            pieces[0].back() == ')') {
+            out = pieces[0].substr(1, pieces[0].size() - 2);
+        } else {
+            out.clear();
+            for (size_t i = 0; i < pieces.size(); i++) {
+                if (i) {
+                    out += "*";
+                }
+                out += pieces[i];
+            }
+        }
+    }
+
+    fmpz_mpoly_factor_clear(fac, ctx);
+    fmpz_mpoly_clear(A, ctx);
+    fmpz_mpoly_ctx_clear(ctx);
+    return ok && !out.empty();
+}
+
 extern "C" char *flutter_symengine_factor_cpp(const char *expression)
 {
     try {
         RCP<const Basic> expr = parse(expression);
-
-        // Try to view the input as a univariate integer polynomial.
-        // from_basic auto-detects the single generator and throws if the
-        // expression is multivariate, non-polynomial, or has non-integer
-        // coefficients (ex=true expands first so (x+1)^2 etc. convert).
-        RCP<const UIntPolyFlint> poly;
-        try {
-            poly = from_basic<UIntPolyFlint>(expr, true);
-        } catch (...) {
-            return flutter_symengine_expand(expression);
+        std::string out;
+        if (factor_univariate(expr, out)) {
+            return cas_dup(out);
         }
-
-        // FLINT factorization: vector of (factor, multiplicity) pairs,
-        // including a leading constant content factor when != 1.
-        std::vector<std::pair<RCP<const UIntPolyFlint>, long>> facs
-            = SymEngine::factors(*poly);
-        if (facs.empty()) {
-            return flutter_symengine_expand(expression);
+        if (factor_multivariate(expr, out)) {
+            return cas_dup(out);
         }
-
-        // Rebuild a *product* expression (SymEngine's mul() does not
-        // distribute, so the factored form is preserved in the string).
-        RCP<const Basic> product;
-        bool first = true;
-        for (const auto &fe : facs) {
-            RCP<const Basic> base = fe.first->as_symbolic();
-            RCP<const Basic> term
-                = (fe.second == 1)
-                      ? base
-                      : pow(base, integer(integer_class(fe.second)));
-            product = first ? term : mul(product, term);
-            first = false;
-        }
-        return cas_dup(str(*product));
+        return flutter_symengine_expand(expression);
     } catch (const std::exception &ex) {
         return cas_dup(std::string("Error in factor: ") + ex.what());
     } catch (...) {
         return cas_dup("Error in factor: unknown error");
+    }
+}
+
+// --- real simplify (replacing the expand-alias) -------------------------
+// SymEngine's simplify() collects like terms but doesn't cancel rational
+// functions, so we add the canonical case — (x^2-1)/(x-1) -> x+1 — via the
+// univariate cancel() (gcd of numerator/denominator), then fall back to
+// simplify() for everything else.
+extern "C" char *flutter_symengine_simplify_cpp(const char *expression)
+{
+    using SymEngine::as_numer_denom;
+    using SymEngine::cancel;
+    using SymEngine::div;
+    using SymEngine::eq;
+    using SymEngine::is_a_Number;
+    using SymEngine::one;
+    using SymEngine::outArg;
+    try {
+        RCP<const Basic> expr = parse(expression);
+
+        RCP<const Basic> num, den;
+        as_numer_denom(expr, outArg(num), outArg(den));
+        // Only attempt cancellation on a genuine rational function with
+        // non-constant numerator AND denominator (cancel() dereferences an
+        // empty generator set for constants).
+        if (!eq(*den, *one) && !is_a_Number(*num) && !is_a_Number(*den)) {
+            try {
+                RCP<const UIntPolyFlint> rn, rd, g;
+                cancel<UIntPolyFlint>(num, den, outArg(rn), outArg(rd), outArg(g));
+                if (!rn.is_null() && !rd.is_null()) {
+                    RCP<const Basic> res =
+                        div(rn->as_symbolic(), rd->as_symbolic());
+                    return cas_dup(str(*res));
+                }
+            } catch (...) {
+                // not a univariate integer rational — fall through
+            }
+        }
+
+        return cas_dup(str(*SymEngine::simplify(expr)));
+    } catch (...) {
+        // Anything simplify() can't handle falls back to expand.
+        return flutter_symengine_expand(expression);
     }
 }

@@ -254,10 +254,20 @@ WASM_EXPORT char* flutter_symengine_integrate(const char* expression, const char
     return create_error_string("integrate", "not implemented in SymEngine C API");
 }
 
+#if SYM_HAS_NATIVE_LIBS
+// SymEngine's real simplify() lives in flutter_symengine_cas.cpp (C++ only).
+extern char* flutter_symengine_simplify_cpp(const char* expression);
+
 WASM_EXPORT char* flutter_symengine_simplify(const char* expression) {
-    // "Simplification" is complex. `expand` is a common form of simplification.
+    if (!expression) return create_error_string("simplify", "null expression");
+    return flutter_symengine_simplify_cpp(expression);
+}
+#else
+WASM_EXPORT char* flutter_symengine_simplify(const char* expression) {
+    // boostmp WASM without the C++ simplify TU — expand is the closest.
     return flutter_symengine_expand(expression);
 }
+#endif
 
 WASM_EXPORT char* flutter_symengine_substitute(const char* expression, const char* symbol, const char* value) {
     if (!expression || !symbol || !value) return create_error_string("substitute", "null input");

@@ -99,6 +99,11 @@ static bool factor_univariate(const RCP<const Basic> &expr, std::string &out)
 // SymEngine has no multivariate FLINT wrapper, so convert MIntPoly's
 // (exponent-vector -> integer) dict into a FLINT fmpz_mpoly, factor it, and
 // pretty-print each factor with the original variable names.
+//
+// NATIVE ONLY: FLINT's fmpz_mpoly_factor aborts under wasm32 (the univariate
+// fmpz_poly_factor is fine). On WASM, multivariate input falls through to
+// expand instead — a graceful degradation rather than a hard crash.
+#ifndef __EMSCRIPTEN__
 static bool factor_multivariate(const RCP<const Basic> &expr, std::string &out)
 {
     RCP<const MIntPoly> poly;
@@ -206,6 +211,7 @@ static bool factor_multivariate(const RCP<const Basic> &expr, std::string &out)
     fmpz_mpoly_ctx_clear(ctx);
     return ok && !out.empty();
 }
+#endif // !__EMSCRIPTEN__
 
 extern "C" char *flutter_symengine_factor_cpp(const char *expression)
 {
@@ -215,9 +221,11 @@ extern "C" char *flutter_symengine_factor_cpp(const char *expression)
         if (factor_univariate(expr, out)) {
             return cas_dup(out);
         }
+#ifndef __EMSCRIPTEN__
         if (factor_multivariate(expr, out)) {
             return cas_dup(out);
         }
+#endif
         return flutter_symengine_expand(expression);
     } catch (const std::exception &ex) {
         return cas_dup(std::string("Error in factor: ") + ex.what());

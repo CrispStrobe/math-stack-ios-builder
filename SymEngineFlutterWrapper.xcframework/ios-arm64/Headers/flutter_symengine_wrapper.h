@@ -62,6 +62,18 @@ char* flutter_symengine_pi_with_precision(int decimal_digits);
 char* flutter_symengine_e_with_precision(int decimal_digits);
 char* flutter_symengine_euler_gamma_with_precision(int decimal_digits);
 char* flutter_symengine_sqrt2_with_precision(int decimal_digits);
+// Generic arbitrary-precision numeric evaluation of any parseable
+// expression (real-valued); backs the calculator's `evalf(expr, N)`.
+char* flutter_symengine_evalf_with_precision(const char* expression,
+                                             int decimal_digits);
+// Complex (MPC) arbitrary-precision evaluation; backs `cevalf(expr, N)`.
+char* flutter_symengine_cevalf_with_precision(const char* expression,
+                                              int decimal_digits);
+// Bessel functions of the first (J) and second (Y) kind, integer order,
+// real argument, via MPFR (SymEngine has no Bessel). Back the
+// calculator/grapher `besselj(n, x)` / `bessely(n, x)`.
+char* flutter_symengine_besselj(int order, const char* x_str);
+char* flutter_symengine_bessely(int order, const char* x_str);
 
 // Number-theory primitives (round 89). All take arbitrary-
 // precision decimal strings. `isprime` returns "true" / "false";
@@ -76,6 +88,21 @@ char* flutter_symengine_prevprime(const char* n);
 // Inputs up to ~90 bits / 27 decimal digits; larger values are
 // rejected to keep the per-call time bounded.
 char* flutter_symengine_factorint(const char* n);
+
+// Modular arithmetic + multiplicative number theory (round 4 of the
+// precision arc). All take arbitrary-precision decimal strings and
+// return a decimal string ("true"/"false"-style errors come back as
+// the standard "Error: ..." payload). Caller frees with
+// `flutter_symengine_free_string`.
+//   modpow(a, e, m)  -> a^e mod m   (m > 0; e may be negative if a is
+//                                    invertible mod m)
+//   modinv(a, m)     -> a^-1 mod m  (errors when gcd(a, m) != 1)
+//   totient(n)       -> Euler's phi(n)               (n >= 1)
+//   jacobi(a, n)     -> Jacobi symbol (a/n) as -1/0/1 (n odd, n > 0)
+char* flutter_symengine_modpow(const char* a, const char* e, const char* m);
+char* flutter_symengine_modinv(const char* a, const char* m);
+char* flutter_symengine_totient(const char* n);
+char* flutter_symengine_jacobi(const char* a, const char* n);
 
 // Matrix operations (using opaque pointers for memory safety)
 CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols);

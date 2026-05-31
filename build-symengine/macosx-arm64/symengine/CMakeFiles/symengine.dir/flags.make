@@ -6,9 +6,9 @@ CXX_DEFINES = -Dsymengine_EXPORTS
 
 CXX_INCLUDES = -I/Users/christianstrobele/code/math-stack-ios-builder/symengine-0.11.2 -I/Users/christianstrobele/code/math-stack-ios-builder/build-symengine/macosx-arm64 -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-flint/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-flint/include/flint -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-mpc/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/symengine-0.11.2/symengine/utilities/cereal/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-mpfr/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-gmp/include
 
-CXX_FLAGSarm64 = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk -mmacosx-version-min=10.15 -Wconversion -Wno-sign-conversion
+CXX_FLAGSarm64 = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -mmacosx-version-min=10.15 -Wconversion -Wno-sign-conversion
 
-CXX_FLAGS = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk -mmacosx-version-min=10.15 -Wconversion -Wno-sign-conversion
+CXX_FLAGS = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -mmacosx-version-min=10.15 -Wconversion -Wno-sign-conversion
 
 # Custom flags: symengine/CMakeFiles/symengine.dir/parser/parser.tab.cc.o_FLAGS = -Wno-conversion
 

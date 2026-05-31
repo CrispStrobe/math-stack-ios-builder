@@ -202,7 +202,7 @@ CMAKE_OSX_DEPLOYMENT_TARGET:UNINITIALIZED=13.0
 
 //The product will be built against the headers and libraries located
 // inside the indicated SDK.
-CMAKE_OSX_SYSROOT:PATH=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk
+CMAKE_OSX_SYSROOT:PATH=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk
 
 //No help, variable specified on the command line.
 CMAKE_POLICY_VERSION_MINIMUM:UNINITIALIZED=3.5

@@ -6,9 +6,9 @@ CXX_DEFINES = -Dsymengine_EXPORTS
 
 CXX_INCLUDES = -I/Users/christianstrobele/code/math-stack-ios-builder/symengine-0.11.2 -I/Users/christianstrobele/code/math-stack-ios-builder/build-symengine/iphonesimulator-arm64 -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-flint/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-flint/include/flint -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-mpc/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/symengine-0.11.2/symengine/utilities/cereal/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-mpfr/include -isystem /Users/christianstrobele/code/math-stack-ios-builder/build-gmp/include
 
-CXX_FLAGSarm64 = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -mios-simulator-version-min=13.0 -Wconversion -Wno-sign-conversion
+CXX_FLAGSarm64 = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -mios-simulator-version-min=13.0 -Wconversion -Wno-sign-conversion
 
-CXX_FLAGS = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -mios-simulator-version-min=13.0 -Wconversion -Wno-sign-conversion
+CXX_FLAGS = -std=c++11  -fPIC -D__extern_always_inline=inline -Wall -Wextra -Wno-unused-parameter -O3 -funroll-loops -Wno-unknown-pragmas -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -mios-simulator-version-min=13.0 -Wconversion -Wno-sign-conversion
 
 # Custom flags: symengine/CMakeFiles/symengine.dir/parser/parser.tab.cc.o_FLAGS = -Wno-conversion
 

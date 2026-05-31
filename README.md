@@ -5,13 +5,15 @@
 [](https://developer.apple.com/documentation/xcode/building_a_universal_macos_binary)
 [](https://opensource.org/licenses/MIT)
 
-A complete build system for compiling a powerful mathematical computing stack for Flutter, and especially, for modern Apple platforms. This project compiles **GMP, MPFR, MPC, FLINT, and SymEngine** into self-contained, static `XCFrameworks` that work on iOS devices, simulators (Intel and Apple Silicon), and macOS.
+A complete build system for compiling a powerful mathematical computing stack for Flutter. This project compiles **GMP, MPFR, MPC, FLINT, and SymEngine** into self-contained, static `XCFrameworks` for Apple platforms (iOS devices, simulators, macOS) and **WebAssembly** for browsers via Emscripten.
 
-This provides a suite of tools for arbitrary-precision arithmetic, number theory, and symbolic manipulation directly within Apple ecosystem applications.
+This provides a suite of tools for arbitrary-precision arithmetic, number theory, and symbolic manipulation directly within Flutter applications — both native and web.
 
 -----
 
 ## What This Builds
+
+### Native (Apple platforms)
 
 The build process creates five interdependent `XCFrameworks`. The final product, `SymEngineFlutterWrapper.xcframework`, bundles the SymEngine library with a C wrapper designed for seamless Flutter FFI integration.
 
@@ -23,9 +25,23 @@ The build process creates five interdependent `XCFrameworks`. The final product,
 | `FLINT.xcframework`                 | [Fast Library for Number Theory](https://flintlib.org/) 3.3.1        | Advanced number theory, polynomials, and matrices. |
 | `SymEngineFlutterWrapper.xcframework` | [SymEngine](https://symengine.org/) 0.11.2 + Flutter C Wrapper       | Fast symbolic manipulation with a C FFI layer.     |
 
+### WebAssembly
+
+An Emscripten build produces `symengine.js` + `symengine.wasm` (~1.1 MB)
+using `INTEGER_CLASS=boostmp` (Boost.Multiprecision, header-only — no
+GMP/MPFR/FLINT native deps). The WASM module provides the full CAS
+core (evaluate, expand, differentiate, solve, substitute, 17 unary math
+functions, gcd/lcm/factorial/fibonacci, matrix ops). Functions that
+require GMP/MPFR/FLINT (isprime, factorint, Bessel, arbitrary-precision
+evalf, modular arithmetic) return clean error strings. See
+[`WASM_BUILD_PLAN.md`](WASM_BUILD_PLAN.md) for the full build
+instructions and capability delta.
+
 -----
 
 ## Requirements
+
+### Native (Apple) build
 
   - **macOS** with Xcode and Command Line Tools installed.
   - **CMake**: Required for building SymEngine. Install via Homebrew: `brew install cmake`.
@@ -35,6 +51,15 @@ The build process creates five interdependent `XCFrameworks`. The final product,
       - `mpc-1.3.1.tar.gz`
       - `flint-3.3.1.tar.gz`
       - `symengine-0.11.2.tar.gz`
+
+### WASM build
+
+  - **Emscripten SDK** (emsdk): `./emsdk install latest && ./emsdk activate latest`.
+  - **Boost headers** (1.87+, header-only — no compiled libraries needed).
+  - **CMake** 3.10+.
+  - SymEngine source (`symengine-0.11.2/` directory).
+
+See [`WASM_BUILD_PLAN.md`](WASM_BUILD_PLAN.md) for step-by-step instructions.
 
 -----
 

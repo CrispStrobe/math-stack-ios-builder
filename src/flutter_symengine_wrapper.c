@@ -2,12 +2,24 @@
  * flutter_symengine_wrapper.c
  * Flutter-specific C wrapper implementation using SymEngine cwrapper.h API.
  * This version is complete, with no placeholders.
+ *
+ * When compiled with Emscripten (__EMSCRIPTEN__ defined), GMP/MPFR/FLINT-
+ * dependent functions are stubbed out (return error strings) and all
+ * exported functions are decorated with EMSCRIPTEN_KEEPALIVE so they
+ * survive dead-code elimination in the linker.
  */
 #include "flutter_symengine_wrapper.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "symengine/cwrapper.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#define WASM_EXPORT EMSCRIPTEN_KEEPALIVE
+#else
+#define WASM_EXPORT
+#endif
 
 // --- Helper Functions ---
 
@@ -36,7 +48,7 @@ static char* basic_to_string_safe(basic b) {
 // applies a single-argument SymEngine function (like basic_sin),
 // and returns the result as a new string.
 #define IMPLEMENT_UNARY_FUNC(wrapper_name, symengine_func) \
-char* wrapper_name(const char* expression) { \
+WASM_EXPORT char* wrapper_name(const char* expression) { \
     if (!expression) return create_error_string(#wrapper_name, "null expression"); \
     \
     basic expr, result; \
@@ -63,7 +75,7 @@ char* wrapper_name(const char* expression) { \
 
 // --- Core Symbolic Functions ---
 
-char* flutter_symengine_evaluate(const char* expression) {
+WASM_EXPORT char* flutter_symengine_evaluate(const char* expression) {
     if (!expression) {
         return create_error_string("evaluate", "null expression");
     }
@@ -91,7 +103,7 @@ char* flutter_symengine_evaluate(const char* expression) {
     return result_str;
 }
 
-char* flutter_symengine_solve(const char* expression, const char* symbol) {
+WASM_EXPORT char* flutter_symengine_solve(const char* expression, const char* symbol) {
     if (!expression || !symbol) {
         return create_error_string("solve", "null input");
     }
@@ -155,7 +167,7 @@ char* flutter_symengine_solve(const char* expression, const char* symbol) {
     return final_result;
 }
 
-char* flutter_symengine_expand(const char* expression) {
+WASM_EXPORT char* flutter_symengine_expand(const char* expression) {
     if (!expression) return create_error_string("expand", "null expression");
 
     basic expr, result;
@@ -180,11 +192,11 @@ char* flutter_symengine_expand(const char* expression) {
 }
 
 // Factor is an alias for expand, as the C API for true factoring is limited.
-char* flutter_symengine_factor(const char* expression) {
+WASM_EXPORT char* flutter_symengine_factor(const char* expression) {
     // This provides API consistency with the original wrapper.
     return flutter_symengine_expand(expression);
 }
-char* flutter_symengine_differentiate(const char* expression, const char* symbol) {
+WASM_EXPORT char* flutter_symengine_differentiate(const char* expression, const char* symbol) {
     if (!expression || !symbol) return create_error_string("differentiate", "null input");
 
     basic expr, sym, result;
@@ -213,18 +225,18 @@ char* flutter_symengine_differentiate(const char* expression, const char* symbol
     return result_str;
 }
 
-char* flutter_symengine_integrate(const char* expression, const char* symbol) {
+WASM_EXPORT char* flutter_symengine_integrate(const char* expression, const char* symbol) {
     // NOTE: SymEngine's C API (cwrapper.h) does not expose an integration function.
     // This is a known limitation of the C interface, not the C++ core.
     return create_error_string("integrate", "not implemented in SymEngine C API");
 }
 
-char* flutter_symengine_simplify(const char* expression) {
+WASM_EXPORT char* flutter_symengine_simplify(const char* expression) {
     // "Simplification" is complex. `expand` is a common form of simplification.
     return flutter_symengine_expand(expression);
 }
 
-char* flutter_symengine_substitute(const char* expression, const char* symbol, const char* value) {
+WASM_EXPORT char* flutter_symengine_substitute(const char* expression, const char* symbol, const char* value) {
     if (!expression || !symbol || !value) return create_error_string("substitute", "null input");
 
     basic expr, sym, val, result;
@@ -281,7 +293,7 @@ IMPLEMENT_UNARY_FUNC(flutter_symengine_gamma, basic_gamma)
 
 // --- Number Theory Functions ---
 
-char* flutter_symengine_gcd(const char* a, const char* b) {
+WASM_EXPORT char* flutter_symengine_gcd(const char* a, const char* b) {
     basic A, B, result;
     basic_new_stack(A);
     basic_new_stack(B);
@@ -302,7 +314,7 @@ char* flutter_symengine_gcd(const char* a, const char* b) {
     return result_str;
 }
 
-char* flutter_symengine_lcm(const char* a, const char* b) {
+WASM_EXPORT char* flutter_symengine_lcm(const char* a, const char* b) {
     basic A, B, result;
     basic_new_stack(A);
     basic_new_stack(B);
@@ -323,7 +335,7 @@ char* flutter_symengine_lcm(const char* a, const char* b) {
     return result_str;
 }
 
-char* flutter_symengine_factorial(int n) {
+WASM_EXPORT char* flutter_symengine_factorial(int n) {
     if (n < 0) return create_error_string("factorial", "input must be non-negative");
     basic result;
     basic_new_stack(result);
@@ -333,7 +345,7 @@ char* flutter_symengine_factorial(int n) {
     return result_str;
 }
 
-char* flutter_symengine_fibonacci(int n) {
+WASM_EXPORT char* flutter_symengine_fibonacci(int n) {
     if (n < 0) return create_error_string("fibonacci", "input must be non-negative");
     basic result;
     basic_new_stack(result);
@@ -345,7 +357,7 @@ char* flutter_symengine_fibonacci(int n) {
 
 // --- Constants ---
 
-char* flutter_symengine_get_pi(void) {
+WASM_EXPORT char* flutter_symengine_get_pi(void) {
     basic s;
     basic_new_stack(s);
     basic_const_pi(s);
@@ -354,7 +366,7 @@ char* flutter_symengine_get_pi(void) {
     return str;
 }
 
-char* flutter_symengine_get_e(void) {
+WASM_EXPORT char* flutter_symengine_get_e(void) {
     basic s;
     basic_new_stack(s);
     basic_const_E(s);
@@ -363,7 +375,7 @@ char* flutter_symengine_get_e(void) {
     return str;
 }
 
-char* flutter_symengine_get_euler_gamma(void) {
+WASM_EXPORT char* flutter_symengine_get_euler_gamma(void) {
     basic s;
     basic_new_stack(s);
     basic_const_EulerGamma(s);
@@ -373,6 +385,9 @@ char* flutter_symengine_get_euler_gamma(void) {
 }
 
 // --- Arbitrary-Precision Real Constants ---
+
+#ifndef __EMSCRIPTEN__
+// Native builds: full MPFR-backed arbitrary-precision evaluation.
 
 char* flutter_symengine_pi_with_precision(int decimal_digits) {
     if (decimal_digits < 1 || decimal_digits > 10000) {
@@ -867,20 +882,84 @@ char* flutter_symengine_jacobi(const char* a, const char* n) {
     return strdup(out);
 }
 
+#else  // __EMSCRIPTEN__ — stub out all GMP/MPFR/FLINT-dependent functions
+
+// Arbitrary-precision constants (require MPFR via basic_evalf)
+WASM_EXPORT char* flutter_symengine_pi_with_precision(int decimal_digits) {
+    return create_error_string("pi_with_precision", "not available in web build (requires MPFR)");
+}
+WASM_EXPORT char* flutter_symengine_e_with_precision(int decimal_digits) {
+    return create_error_string("e_with_precision", "not available in web build (requires MPFR)");
+}
+WASM_EXPORT char* flutter_symengine_euler_gamma_with_precision(int decimal_digits) {
+    return create_error_string("euler_gamma_with_precision", "not available in web build (requires MPFR)");
+}
+WASM_EXPORT char* flutter_symengine_sqrt2_with_precision(int decimal_digits) {
+    return create_error_string("sqrt2_with_precision", "not available in web build (requires MPFR)");
+}
+
+// Generic arbitrary-precision evaluation (require MPFR/MPC)
+WASM_EXPORT char* flutter_symengine_evalf_with_precision(const char* expression, int decimal_digits) {
+    return create_error_string("evalf_with_precision", "not available in web build (requires MPFR)");
+}
+WASM_EXPORT char* flutter_symengine_cevalf_with_precision(const char* expression, int decimal_digits) {
+    return create_error_string("cevalf_with_precision", "not available in web build (requires MPC)");
+}
+
+// Bessel functions (require MPFR directly)
+WASM_EXPORT char* flutter_symengine_besselj(int order, const char* x_str) {
+    return create_error_string("besselj", "not available in web build (requires MPFR)");
+}
+WASM_EXPORT char* flutter_symengine_bessely(int order, const char* x_str) {
+    return create_error_string("bessely", "not available in web build (requires MPFR)");
+}
+
+// Number-theory primitives (require GMP directly)
+WASM_EXPORT char* flutter_symengine_isprime(const char* n) {
+    return create_error_string("isprime", "not available in web build (requires GMP)");
+}
+WASM_EXPORT char* flutter_symengine_nextprime(const char* n) {
+    return create_error_string("nextprime", "not available in web build (requires GMP)");
+}
+WASM_EXPORT char* flutter_symengine_prevprime(const char* n) {
+    return create_error_string("prevprime", "not available in web build (requires GMP)");
+}
+
+// Integer factorization (requires FLINT)
+WASM_EXPORT char* flutter_symengine_factorint(const char* n) {
+    return create_error_string("factorint", "not available in web build (requires FLINT)");
+}
+
+// Modular arithmetic (requires GMP/FLINT)
+WASM_EXPORT char* flutter_symengine_modpow(const char* a, const char* e, const char* m) {
+    return create_error_string("modpow", "not available in web build (requires GMP)");
+}
+WASM_EXPORT char* flutter_symengine_modinv(const char* a, const char* m) {
+    return create_error_string("modinv", "not available in web build (requires GMP)");
+}
+WASM_EXPORT char* flutter_symengine_totient(const char* n) {
+    return create_error_string("totient", "not available in web build (requires FLINT)");
+}
+WASM_EXPORT char* flutter_symengine_jacobi(const char* a, const char* n) {
+    return create_error_string("jacobi", "not available in web build (requires GMP)");
+}
+
+#endif  // __EMSCRIPTEN__
+
 // --- Matrix Operations (Opaque Pointers) ---
 
-CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {
+WASM_EXPORT CDenseMatrix* flutter_symengine_matrix_new(int rows, int cols) {
     if (rows <= 0 || cols <= 0) return NULL;
     return dense_matrix_new_rows_cols(rows, cols);
 }
 
-void flutter_symengine_matrix_free(CDenseMatrix* matrix) {
+WASM_EXPORT void flutter_symengine_matrix_free(CDenseMatrix* matrix) {
     if (matrix) {
         dense_matrix_free(matrix);
     }
 }
 
-int flutter_symengine_matrix_set_element(CDenseMatrix* matrix, int row, int col, const char* value) {
+WASM_EXPORT int flutter_symengine_matrix_set_element(CDenseMatrix* matrix, int row, int col, const char* value) {
     if (!matrix || !value) return -1;
     basic val;
     basic_new_stack(val);
@@ -893,7 +972,7 @@ int flutter_symengine_matrix_set_element(CDenseMatrix* matrix, int row, int col,
     return (result == SYMENGINE_NO_EXCEPTION) ? 0 : -3; // Set error
 }
 
-char* flutter_symengine_matrix_get_element(CDenseMatrix* matrix, int row, int col) {
+WASM_EXPORT char* flutter_symengine_matrix_get_element(CDenseMatrix* matrix, int row, int col) {
     if (!matrix) return create_error_string("matrix_get", "null matrix");
     basic s;
     basic_new_stack(s);
@@ -906,12 +985,12 @@ char* flutter_symengine_matrix_get_element(CDenseMatrix* matrix, int row, int co
     return str;
 }
 
-char* flutter_symengine_matrix_to_string(CDenseMatrix* matrix) {
+WASM_EXPORT char* flutter_symengine_matrix_to_string(CDenseMatrix* matrix) {
     if (!matrix) return create_error_string("matrix_str", "null matrix");
     return dense_matrix_str(matrix);
 }
 
-char* flutter_symengine_matrix_det(CDenseMatrix* matrix) {
+WASM_EXPORT char* flutter_symengine_matrix_det(CDenseMatrix* matrix) {
     if (!matrix) return create_error_string("matrix_det", "null matrix");
     basic result;
     basic_new_stack(result);
@@ -924,7 +1003,7 @@ char* flutter_symengine_matrix_det(CDenseMatrix* matrix) {
     return str;
 }
 
-CDenseMatrix* flutter_symengine_matrix_inv(CDenseMatrix* matrix) {
+WASM_EXPORT CDenseMatrix* flutter_symengine_matrix_inv(CDenseMatrix* matrix) {
     if (!matrix) return NULL;
     CDenseMatrix* result = dense_matrix_new();
     if (dense_matrix_inv(result, matrix) != SYMENGINE_NO_EXCEPTION) {
@@ -934,7 +1013,7 @@ CDenseMatrix* flutter_symengine_matrix_inv(CDenseMatrix* matrix) {
     return result;
 }
 
-CDenseMatrix* flutter_symengine_matrix_add(CDenseMatrix* a, CDenseMatrix* b) {
+WASM_EXPORT CDenseMatrix* flutter_symengine_matrix_add(CDenseMatrix* a, CDenseMatrix* b) {
     if (!a || !b) return NULL;
     CDenseMatrix* result = dense_matrix_new();
     if (dense_matrix_add_matrix(result, a, b) != SYMENGINE_NO_EXCEPTION) {
@@ -944,7 +1023,7 @@ CDenseMatrix* flutter_symengine_matrix_add(CDenseMatrix* a, CDenseMatrix* b) {
     return result;
 }
 
-CDenseMatrix* flutter_symengine_matrix_mul(CDenseMatrix* a, CDenseMatrix* b) {
+WASM_EXPORT CDenseMatrix* flutter_symengine_matrix_mul(CDenseMatrix* a, CDenseMatrix* b) {
     if (!a || !b) return NULL;
     CDenseMatrix* result = dense_matrix_new();
     if (dense_matrix_mul_matrix(result, a, b) != SYMENGINE_NO_EXCEPTION) {
@@ -957,11 +1036,11 @@ CDenseMatrix* flutter_symengine_matrix_mul(CDenseMatrix* a, CDenseMatrix* b) {
 
 // --- Utility and Memory Management ---
 
-const char* flutter_symengine_version(void) {
+WASM_EXPORT const char* flutter_symengine_version(void) {
     return symengine_version();
 }
 
-char* flutter_symengine_test_basic_operations(void) {
+WASM_EXPORT char* flutter_symengine_test_basic_operations(void) {
     basic x, y, result;
     basic_new_stack(x);
     basic_new_stack(y);
@@ -981,7 +1060,7 @@ char* flutter_symengine_test_basic_operations(void) {
     return result_str;
 }
 
-char* flutter_symengine_test_symbolic(void) {
+WASM_EXPORT char* flutter_symengine_test_symbolic(void) {
     basic x, expr, result;
     basic_new_stack(x);
     basic_new_stack(expr);
@@ -998,7 +1077,7 @@ char* flutter_symengine_test_symbolic(void) {
     return result_str;
 }
 
-void flutter_symengine_free_string(char* str) {
+WASM_EXPORT void flutter_symengine_free_string(char* str) {
     if (str) {
         // Corresponds to malloc, strdup, and basic_str
         free(str);

@@ -244,7 +244,8 @@ extern "C" char *flutter_symengine_factor_cpp(const char *expression)
 // --- trig simplification rewrite engine -----------------------------------
 // Applies trigonometric identities bottom-up on the expression tree.
 // Uses a fixed-point loop (max 5 iterations) until the expression stabilizes.
-static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr);
+static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr,
+                                           bool allow_power_reduction);
 
 // Recursively simplify children first, then apply rules to parent.
 static RCP<const Basic> trig_simplify_recurse(RCP<const Basic> expr)
@@ -304,8 +305,12 @@ static RCP<const Basic> trig_simplify_recurse(RCP<const Basic> expr)
         expr = SymEngine::tan(trig_simplify_recurse(t.get_arg()));
     }
 
-    // --- Now apply trig rules to this node ---
-    return trig_simplify_once(expr);
+    // --- Now apply trig rules to this node. Power reduction (rule 4)
+    // must NOT fire during recursion: rewriting sin^2/cos^2 inside an
+    // Add's terms would destroy the Pythagorean pair before the parent
+    // Add analysis can see it (sin^2+cos^2 would become the expanded
+    // half-angle sum instead of 1).
+    return trig_simplify_once(expr, /*allow_power_reduction=*/false);
 }
 
 // Helper: check if expr is sin^2(u) or cos^2(u). Returns the argument u
@@ -351,7 +356,8 @@ static bool is_tan_squared(const RCP<const Basic> &expr,
 }
 
 // Apply trig identities to a single node (after children are simplified).
-static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr)
+static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr,
+                                           bool allow_power_reduction)
 {
     using SymEngine::Add;
     using SymEngine::add;
@@ -416,9 +422,11 @@ static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr)
     if (!is_a<Add>(*expr)) {
         // --- Rule 4: Power reduction for standalone sin²/cos² ---
         // sin²(u) -> (1 - cos(2u))/2, cos²(u) -> (1 + cos(2u))/2
+        // Top-level only (see trig_simplify_recurse).
         RCP<const Basic> trig_arg;
         bool is_sin_type;
-        if (is_trig_squared(expr, trig_arg, is_sin_type)) {
+        if (allow_power_reduction
+            && is_trig_squared(expr, trig_arg, is_sin_type)) {
             RCP<const Basic> cos2u = cos(mul(two, trig_arg));
             if (is_sin_type) {
                 return div(SymEngine::sub(one, cos2u), two);
@@ -564,7 +572,9 @@ static RCP<const Basic> trig_simplify(RCP<const Basic> expr)
         if (SymEngine::eq(*simplified, *expr)) break;
         expr = simplified;
     }
-    return expr;
+    // Standalone power reduction — only when the WHOLE expression is a
+    // bare sin^2/cos^2, so it can never eat a Pythagorean pair.
+    return trig_simplify_once(expr, /*allow_power_reduction=*/true);
 }
 
 // --- real simplify (replacing the expand-alias) -------------------------

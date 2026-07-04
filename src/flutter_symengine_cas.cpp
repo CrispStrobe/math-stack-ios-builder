@@ -448,7 +448,7 @@ static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr)
         for (auto &kv : trig_pairs) {
             if (eq(*kv.first, *arg)) return kv.second;
         }
-        trig_pairs.push_back({arg, {nullptr, nullptr}});
+        trig_pairs.push_back({arg, TrigPair{}});
         return trig_pairs.back().second;
     };
 
@@ -495,8 +495,8 @@ static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr)
     std::vector<RCP<const Basic>> consumed_bases;
 
     for (const auto &tp : trig_pairs) {
-        if (tp.second.sin2_coeff && tp.second.cos2_coeff &&
-            eq(*tp.second.sin2_coeff, *tp.second.cos2_coeff)) {
+        if (!tp.second.sin2_coeff.is_null() && !tp.second.cos2_coeff.is_null()
+            && eq(*tp.second.sin2_coeff, *tp.second.cos2_coeff)) {
             // Found a Pythagorean pair! Replace with coeff.
             RCP<const SymEngine::Number> c = tp.second.sin2_coeff;
             constant = SymEngine::addnum(

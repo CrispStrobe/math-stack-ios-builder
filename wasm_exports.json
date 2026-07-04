@@ -61,5 +61,7 @@
   "_flutter_symengine_test_basic_operations",
   "_flutter_symengine_test_symbolic",
   "_malloc",
-  "_free"
+  "_free",
+  "_flutter_symengine_series",
+  "_flutter_symengine_linsolve"
 ]

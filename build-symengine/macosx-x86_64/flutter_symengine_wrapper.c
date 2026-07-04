@@ -269,6 +269,37 @@ WASM_EXPORT char* flutter_symengine_simplify(const char* expression) {
 }
 #endif
 
+#if SYM_HAS_NATIVE_LIBS
+// Taylor/Maclaurin series and symbolic linear-system solve live in
+// flutter_symengine_cas.cpp (SymEngine C++ series() / linsolve() — the C
+// cwrapper.h exposes neither).
+extern char* flutter_symengine_series_cpp(const char* expression, const char* symbol,
+                                          const char* point, int order);
+extern char* flutter_symengine_linsolve_cpp(const char* equations, const char* symbols);
+
+WASM_EXPORT char* flutter_symengine_series(const char* expression, const char* symbol,
+                                           const char* point, int order) {
+    if (!expression || !symbol || !point) return create_error_string("series", "null input");
+    return flutter_symengine_series_cpp(expression, symbol, point, order);
+}
+
+WASM_EXPORT char* flutter_symengine_linsolve(const char* equations, const char* symbols) {
+    if (!equations || !symbols) return create_error_string("linsolve", "null input");
+    return flutter_symengine_linsolve_cpp(equations, symbols);
+}
+#else
+WASM_EXPORT char* flutter_symengine_series(const char* expression, const char* symbol,
+                                           const char* point, int order) {
+    (void)expression; (void)symbol; (void)point; (void)order;
+    return create_error_string("series", "not available in this build");
+}
+
+WASM_EXPORT char* flutter_symengine_linsolve(const char* equations, const char* symbols) {
+    (void)equations; (void)symbols;
+    return create_error_string("linsolve", "not available in this build");
+}
+#endif
+
 WASM_EXPORT char* flutter_symengine_substitute(const char* expression, const char* symbol, const char* value) {
     if (!expression || !symbol || !value) return create_error_string("substitute", "null input");
 

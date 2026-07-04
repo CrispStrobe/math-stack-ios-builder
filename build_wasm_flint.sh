@@ -59,9 +59,9 @@ echo "SymEngine OK: $SYMLIB"
 echo "=== link wrapper -> symengine.js ==="
 cd "$ROOT"
 INCS="-I$SYMSRC -I$SYMBUILD -I$PREFIX/include"
-emcc -O2 $INCS -DWASM_WITH_FLINT -c src/flutter_symengine_wrapper.c -o "$WASM/wrap.o" \
+emcc -O2 $INCS -DWASM_WITH_FLINT -sNO_DISABLE_EXCEPTION_CATCHING -c src/flutter_symengine_wrapper.c -o "$WASM/wrap.o" \
   >/tmp/wrap_c.log 2>&1 || { echo "WRAP C FAILED"; tail -25 /tmp/wrap_c.log; exit 1; }
-em++ -O2 -std=c++14 $INCS -DWASM_WITH_FLINT -c src/flutter_symengine_cas.cpp -o "$WASM/cas.o" \
+em++ -O2 -std=c++14 $INCS -DWASM_WITH_FLINT -sNO_DISABLE_EXCEPTION_CATCHING -c src/flutter_symengine_cas.cpp -o "$WASM/cas.o" \
   >/tmp/wrap_cpp.log 2>&1 || { echo "WRAP CPP FAILED"; tail -25 /tmp/wrap_cpp.log; exit 1; }
 
 OUTDIR=$ROOT/build-wasm-out
@@ -70,7 +70,7 @@ em++ -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="SymEngineModule" \
   -s EXPORTED_FUNCTIONS="@$ROOT/wasm_exports.json" \
   -s 'EXPORTED_RUNTIME_METHODS=["ccall","cwrap","UTF8ToString","stringToUTF8","lengthBytesUTF8"]' \
   -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=33554432 -s MAXIMUM_MEMORY=536870912 \
-  -s NO_EXIT_RUNTIME=1 -s ENVIRONMENT=web \
+  -s NO_EXIT_RUNTIME=1 -s ENVIRONMENT=web -sNO_DISABLE_EXCEPTION_CATCHING \
   "$WASM/wrap.o" "$WASM/cas.o" "$SYMLIB" \
   "$PREFIX/lib/libflint.a" "$PREFIX/lib/libmpc.a" \
   "$PREFIX/lib/libmpfr.a" "$PREFIX/lib/libgmp.a" \

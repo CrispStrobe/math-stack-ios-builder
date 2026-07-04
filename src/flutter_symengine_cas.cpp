@@ -24,6 +24,8 @@
 #include <symengine/basic.h>
 #include <symengine/integer.h>
 #include <symengine/mul.h>
+#include <symengine/add.h>
+#include <symengine/functions.h>
 #include <symengine/parser.h>
 #include <symengine/pow.h>
 #include <symengine/printers.h>
@@ -239,6 +241,332 @@ extern "C" char *flutter_symengine_factor_cpp(const char *expression)
     }
 }
 
+// --- trig simplification rewrite engine -----------------------------------
+// Applies trigonometric identities bottom-up on the expression tree.
+// Uses a fixed-point loop (max 5 iterations) until the expression stabilizes.
+static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr);
+
+// Recursively simplify children first, then apply rules to parent.
+static RCP<const Basic> trig_simplify_recurse(RCP<const Basic> expr)
+{
+    using SymEngine::Add;
+    using SymEngine::add;
+    using SymEngine::Cos;
+    using SymEngine::cos;
+    using SymEngine::div;
+    using SymEngine::eq;
+    using SymEngine::Mul;
+    using SymEngine::Number;
+    using SymEngine::one;
+    using SymEngine::Pow;
+    using SymEngine::Sin;
+    using SymEngine::sin;
+    using SymEngine::Tan;
+    using SymEngine::two;
+    using SymEngine::zero;
+
+    // --- Bottom-up: simplify children first ---
+    if (is_a<Add>(*expr)) {
+        const Add &a = static_cast<const Add &>(*expr);
+        SymEngine::vec_basic terms;
+        if (!eq(*a.get_coef(), *zero)) {
+            terms.push_back(a.get_coef());
+        }
+        for (const auto &kv : a.get_dict()) {
+            RCP<const Basic> term = mul(kv.second, kv.first);
+            terms.push_back(trig_simplify_recurse(term));
+        }
+        expr = add(terms);
+    } else if (is_a<Mul>(*expr)) {
+        const Mul &m = static_cast<const Mul &>(*expr);
+        SymEngine::vec_basic factors;
+        if (!eq(*m.get_coef(), *one)) {
+            factors.push_back(m.get_coef());
+        }
+        for (const auto &kv : m.get_dict()) {
+            RCP<const Basic> factor = pow(kv.first, kv.second);
+            factors.push_back(trig_simplify_recurse(factor));
+        }
+        expr = mul(factors);
+    } else if (is_a<Pow>(*expr)) {
+        const Pow &p = static_cast<const Pow &>(*expr);
+        RCP<const Basic> base = trig_simplify_recurse(p.get_base());
+        RCP<const Basic> exp = trig_simplify_recurse(p.get_exp());
+        expr = pow(base, exp);
+    } else if (is_a<Sin>(*expr)) {
+        const Sin &s = static_cast<const Sin &>(*expr);
+        expr = sin(trig_simplify_recurse(s.get_arg()));
+    } else if (is_a<Cos>(*expr)) {
+        const Cos &c = static_cast<const Cos &>(*expr);
+        expr = cos(trig_simplify_recurse(c.get_arg()));
+    } else if (is_a<Tan>(*expr)) {
+        const Tan &t = static_cast<const Tan &>(*expr);
+        expr = SymEngine::tan(trig_simplify_recurse(t.get_arg()));
+    }
+
+    // --- Now apply trig rules to this node ---
+    return trig_simplify_once(expr);
+}
+
+// Helper: check if expr is sin^2(u) or cos^2(u). Returns the argument u
+// and whether it's sin (true) or cos (false). Returns false if not a match.
+static bool is_trig_squared(const RCP<const Basic> &expr,
+                            RCP<const Basic> &arg, bool &is_sin_type)
+{
+    using SymEngine::Cos;
+    using SymEngine::Pow;
+    using SymEngine::Sin;
+
+    if (!is_a<Pow>(*expr)) return false;
+    const Pow &p = static_cast<const Pow &>(*expr);
+    if (!SymEngine::eq(*p.get_exp(), *integer(2))) return false;
+    if (is_a<Sin>(*p.get_base())) {
+        arg = static_cast<const Sin &>(*p.get_base()).get_arg();
+        is_sin_type = true;
+        return true;
+    }
+    if (is_a<Cos>(*p.get_base())) {
+        arg = static_cast<const Cos &>(*p.get_base()).get_arg();
+        is_sin_type = false;
+        return true;
+    }
+    return false;
+}
+
+// Helper: check if expr is tan^2(u). Returns arg u.
+static bool is_tan_squared(const RCP<const Basic> &expr,
+                           RCP<const Basic> &arg)
+{
+    using SymEngine::Pow;
+    using SymEngine::Tan;
+
+    if (!is_a<Pow>(*expr)) return false;
+    const Pow &p = static_cast<const Pow &>(*expr);
+    if (!SymEngine::eq(*p.get_exp(), *integer(2))) return false;
+    if (is_a<Tan>(*p.get_base())) {
+        arg = static_cast<const Tan &>(*p.get_base()).get_arg();
+        return true;
+    }
+    return false;
+}
+
+// Apply trig identities to a single node (after children are simplified).
+static RCP<const Basic> trig_simplify_once(RCP<const Basic> expr)
+{
+    using SymEngine::Add;
+    using SymEngine::add;
+    using SymEngine::Cos;
+    using SymEngine::cos;
+    using SymEngine::div;
+    using SymEngine::eq;
+    using SymEngine::Mul;
+    using SymEngine::Number;
+    using SymEngine::one;
+    using SymEngine::Pow;
+    using SymEngine::Sin;
+    using SymEngine::sin;
+    using SymEngine::Tan;
+    using SymEngine::two;
+    using SymEngine::zero;
+
+    // --- Rule 3: Double angle in Mul: 2*sin(u)*cos(u) -> sin(2*u) ---
+    if (is_a<Mul>(*expr)) {
+        const Mul &m = static_cast<const Mul &>(*expr);
+        // Look for sin(u) and cos(u) factors in the Mul dict
+        RCP<const Basic> sin_arg, cos_arg;
+        bool has_sin = false, has_cos = false;
+        for (const auto &kv : m.get_dict()) {
+            if (is_a<Sin>(*kv.first) && eq(*kv.second, *one)) {
+                sin_arg = static_cast<const Sin &>(*kv.first).get_arg();
+                has_sin = true;
+            } else if (is_a<Cos>(*kv.first) && eq(*kv.second, *one)) {
+                cos_arg = static_cast<const Cos &>(*kv.first).get_arg();
+                has_cos = true;
+            }
+        }
+        if (has_sin && has_cos && eq(*sin_arg, *cos_arg)) {
+            // Check if coefficient is 2*k for some k
+            RCP<const Basic> coef = m.get_coef();
+            // Build remaining factors (everything except sin and cos)
+            SymEngine::vec_basic remaining;
+            for (const auto &kv : m.get_dict()) {
+                if (is_a<Sin>(*kv.first) && eq(*kv.second, *one) &&
+                    eq(*static_cast<const Sin &>(*kv.first).get_arg(), *sin_arg))
+                    continue;
+                if (is_a<Cos>(*kv.first) && eq(*kv.second, *one) &&
+                    eq(*static_cast<const Cos &>(*kv.first).get_arg(), *cos_arg))
+                    continue;
+                remaining.push_back(pow(kv.first, kv.second));
+            }
+            // coef must contain factor of 2
+            if (is_a<SymEngine::Integer>(*coef)) {
+                auto &ci = static_cast<const SymEngine::Integer &>(*coef);
+                auto val = ci.as_integer_class();
+                if (val % 2 == 0) {
+                    RCP<const Basic> half_coef = integer(val / 2);
+                    remaining.insert(remaining.begin(), half_coef);
+                    remaining.push_back(sin(mul(two, sin_arg)));
+                    return mul(remaining);
+                }
+            }
+        }
+    }
+
+    // --- Rules 1, 2, 5 apply to Add nodes ---
+    if (!is_a<Add>(*expr)) {
+        // --- Rule 4: Power reduction for standalone sin²/cos² ---
+        // sin²(u) -> (1 - cos(2u))/2, cos²(u) -> (1 + cos(2u))/2
+        RCP<const Basic> trig_arg;
+        bool is_sin_type;
+        if (is_trig_squared(expr, trig_arg, is_sin_type)) {
+            RCP<const Basic> cos2u = cos(mul(two, trig_arg));
+            if (is_sin_type) {
+                return div(SymEngine::sub(one, cos2u), two);
+            } else {
+                return div(add(one, cos2u), two);
+            }
+        }
+        return expr;
+    }
+
+    const Add &a = static_cast<const Add &>(*expr);
+
+    // Collect terms as (base, coeff) pairs for analysis.
+    // Each term in Add is coeff * base (from get_dict()).
+    // We look for pairs c*sin²(u) and c*cos²(u) with same c and u.
+
+    // Build a map: for each trig arg u, track sin²(u) coeff and cos²(u) coeff.
+    struct TrigPair {
+        RCP<const SymEngine::Number> sin2_coeff; // null if not present
+        RCP<const SymEngine::Number> cos2_coeff; // null if not present
+    };
+    // Map from arg (as string for easy comparison) to info.
+    // We use vec_basic keys for proper equality.
+    std::vector<std::pair<RCP<const Basic>, TrigPair>> trig_pairs;
+
+    auto find_or_add = [&](const RCP<const Basic> &arg) -> TrigPair & {
+        for (auto &kv : trig_pairs) {
+            if (eq(*kv.first, *arg)) return kv.second;
+        }
+        trig_pairs.push_back({arg, {nullptr, nullptr}});
+        return trig_pairs.back().second;
+    };
+
+    // Also track tan²(u) + 1 patterns
+    struct TanInfo {
+        RCP<const Basic> arg;
+        RCP<const SymEngine::Number> coeff;
+    };
+    std::vector<TanInfo> tan_squares;
+
+    // Scan the Add dict
+    for (const auto &kv : a.get_dict()) {
+        // kv.first is the base, kv.second is the coefficient (a Number)
+        RCP<const Basic> base = kv.first;
+        RCP<const SymEngine::Number> coeff = kv.second;
+
+        RCP<const Basic> trig_arg;
+        bool is_sin_type;
+        if (is_trig_squared(base, trig_arg, is_sin_type)) {
+            TrigPair &tp = find_or_add(trig_arg);
+            if (is_sin_type) {
+                tp.sin2_coeff = coeff;
+            } else {
+                tp.cos2_coeff = coeff;
+            }
+        }
+
+        RCP<const Basic> tan_arg;
+        if (is_tan_squared(base, tan_arg)) {
+            tan_squares.push_back({tan_arg, coeff});
+        }
+    }
+
+    bool changed = false;
+
+    // --- Rule 1/2: Pythagorean identity ---
+    // For each arg where we have both sin²(u) and cos²(u) with same coeff c:
+    // replace c*sin²(u) + c*cos²(u) with c.
+    SymEngine::vec_basic new_terms;
+    // Start with the constant
+    RCP<const Basic> constant = a.get_coef();
+
+    // Track which bases have been consumed by Pythagorean
+    std::vector<RCP<const Basic>> consumed_bases;
+
+    for (const auto &tp : trig_pairs) {
+        if (tp.second.sin2_coeff && tp.second.cos2_coeff &&
+            eq(*tp.second.sin2_coeff, *tp.second.cos2_coeff)) {
+            // Found a Pythagorean pair! Replace with coeff.
+            RCP<const SymEngine::Number> c = tp.second.sin2_coeff;
+            constant = SymEngine::addnum(
+                SymEngine::rcp_static_cast<const Number>(constant), c);
+            changed = true;
+            // Mark both sin²(u) and cos²(u) as consumed
+            consumed_bases.push_back(pow(sin(tp.first), integer(2)));
+            consumed_bases.push_back(pow(cos(tp.first), integer(2)));
+        }
+    }
+
+    // --- Rule 5: tan²(u) + 1 -> 1/cos²(u) ---
+    // Check if constant term contains a 1 that pairs with a tan²(u) of coeff 1
+    // More generally: c*tan²(u) + c -> c/cos²(u)
+    // We look for tan²(u) with coeff c where the overall constant has at least c.
+    for (const auto &ti : tan_squares) {
+        // Check if this tan² base is already consumed
+        bool already_consumed = false;
+        RCP<const Basic> tan_sq_base = pow(SymEngine::tan(ti.arg), integer(2));
+        for (const auto &cb : consumed_bases) {
+            if (eq(*cb, *tan_sq_base)) { already_consumed = true; break; }
+        }
+        if (already_consumed) continue;
+
+        // We need c from the constant. The constant must have ti.coeff available.
+        if (is_a<SymEngine::Integer>(*constant) && is_a<SymEngine::Integer>(*ti.coeff)) {
+            auto const_val = static_cast<const SymEngine::Integer &>(*constant).as_integer_class();
+            auto coeff_val = static_cast<const SymEngine::Integer &>(*ti.coeff).as_integer_class();
+            if (coeff_val > 0 && const_val >= coeff_val) {
+                // Apply: c*tan²(u) + c -> c/cos²(u)
+                constant = integer(const_val - coeff_val);
+                RCP<const Basic> sec2 = pow(cos(ti.arg), integer(-2));
+                new_terms.push_back(mul(ti.coeff, sec2));
+                consumed_bases.push_back(tan_sq_base);
+                changed = true;
+            }
+        }
+    }
+
+    if (!changed) return expr;
+
+    // Rebuild the Add with unconsumed terms
+    if (!eq(*constant, *zero)) {
+        new_terms.push_back(constant);
+    }
+    for (const auto &kv : a.get_dict()) {
+        bool consumed = false;
+        for (const auto &cb : consumed_bases) {
+            if (eq(*kv.first, *cb)) { consumed = true; break; }
+        }
+        if (!consumed) {
+            new_terms.push_back(mul(kv.second, kv.first));
+        }
+    }
+
+    if (new_terms.empty()) return zero;
+    return add(new_terms);
+}
+
+// Top-level trig simplify: fixed-point loop.
+static RCP<const Basic> trig_simplify(RCP<const Basic> expr)
+{
+    for (int i = 0; i < 5; i++) {
+        RCP<const Basic> simplified = trig_simplify_recurse(expr);
+        if (SymEngine::eq(*simplified, *expr)) break;
+        expr = simplified;
+    }
+    return expr;
+}
+
 // --- real simplify (replacing the expand-alias) -------------------------
 // SymEngine's simplify() collects like terms but doesn't cancel rational
 // functions, so we add the canonical case — (x^2-1)/(x-1) -> x+1 — via the
@@ -275,7 +603,9 @@ extern "C" char *flutter_symengine_simplify_cpp(const char *expression)
             }
         }
 
-        return cas_dup(str(*SymEngine::simplify(expr)));
+        RCP<const Basic> result = SymEngine::simplify(expr);
+        result = trig_simplify(result);
+        return cas_dup(str(*result));
     } catch (...) {
         // Anything simplify() can't handle falls back to expand.
         return flutter_symengine_expand(expression);

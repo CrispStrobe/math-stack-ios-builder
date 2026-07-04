@@ -36,6 +36,11 @@
 #include <symengine/polys/uintpoly_flint.h>
 #include <symengine/polys/msymenginepoly.h>
 #include <symengine/polys/cancel.h>
+#include <symengine/series.h>
+#include <symengine/solve.h>
+#include <symengine/add.h>
+#include <symengine/subs.h>
+#include <symengine/matrix.h>
 
 #include <flint/fmpz.h>
 #include <flint/fmpz_mpoly.h>
@@ -274,5 +279,120 @@ extern "C" char *flutter_symengine_simplify_cpp(const char *expression)
     } catch (...) {
         // Anything simplify() can't handle falls back to expand.
         return flutter_symengine_expand(expression);
+    }
+}
+
+// --- Taylor/Maclaurin series via SymEngine's series() -------------------
+// Expansion about `point`. SymEngine only expands about 0, so a non-zero
+// point is handled by the standard shift: substitute x -> x + x0, expand
+// about 0, then substitute x -> (x - x0) back into the truncated
+// polynomial (the powers of (x - x0) stay unexpanded, which is the form
+// users expect a Taylor polynomial in).
+extern "C" char *flutter_symengine_series_cpp(const char *expression,
+                                              const char *symbol,
+                                              const char *point,
+                                              int order)
+{
+    using SymEngine::add;
+    using SymEngine::eq;
+    using SymEngine::map_basic_basic;
+    using SymEngine::sub;
+    using SymEngine::zero;
+    try {
+        if (order < 1 || order > 64) {
+            return cas_dup("Error in series: order must be in 1..64");
+        }
+        RCP<const Basic> expr = parse(expression);
+        RCP<const Symbol> x = SymEngine::symbol(symbol);
+        RCP<const Basic> x0 = parse(point);
+
+        const bool shifted = !eq(*x0, *zero);
+        if (shifted) {
+            map_basic_basic shift{{x, add(x, x0)}};
+            expr = expr->subs(shift);
+        }
+        auto ser = SymEngine::series(expr, x, static_cast<unsigned>(order));
+        RCP<const Basic> poly = ser->as_basic();
+        if (shifted) {
+            map_basic_basic unshift{{x, sub(x, x0)}};
+            poly = poly->subs(unshift);
+        }
+        return cas_dup(str(*poly));
+    } catch (const std::exception &ex) {
+        return cas_dup(std::string("Error in series: ") + ex.what());
+    } catch (...) {
+        return cas_dup("Error in series: not expandable at this point");
+    }
+}
+
+// --- Symbolic linear-system solve via SymEngine's linsolve() ------------
+// `equations`: ';'-separated. Each may be "lhs = rhs" or an expression
+// implicitly equal to 0. `symbols`: ','-separated unknowns. Returns the
+// solutions "[v1, v2, ...]" in the same order as `symbols`, or an error
+// string (non-linear input, inconsistent/underdetermined system).
+extern "C" char *flutter_symengine_linsolve_cpp(const char *equations,
+                                                const char *symbols)
+{
+    using SymEngine::sub;
+    using SymEngine::vec_basic;
+    using SymEngine::vec_sym;
+    try {
+        vec_basic eqs;
+        std::string eqstr(equations);
+        size_t start = 0;
+        while (start <= eqstr.size()) {
+            size_t end = eqstr.find(';', start);
+            if (end == std::string::npos) end = eqstr.size();
+            std::string piece = eqstr.substr(start, end - start);
+            // trim
+            size_t a = piece.find_first_not_of(" \t");
+            size_t b = piece.find_last_not_of(" \t");
+            if (a != std::string::npos) {
+                piece = piece.substr(a, b - a + 1);
+                size_t eqpos = piece.find('=');
+                RCP<const Basic> e;
+                if (eqpos != std::string::npos) {
+                    e = sub(parse(piece.substr(0, eqpos)),
+                            parse(piece.substr(eqpos + 1)));
+                } else {
+                    e = parse(piece);
+                }
+                eqs.push_back(e);
+            }
+            start = end + 1;
+        }
+
+        vec_sym syms;
+        std::string symstr(symbols);
+        start = 0;
+        while (start <= symstr.size()) {
+            size_t end = symstr.find(',', start);
+            if (end == std::string::npos) end = symstr.size();
+            std::string piece = symstr.substr(start, end - start);
+            size_t a = piece.find_first_not_of(" \t");
+            size_t b = piece.find_last_not_of(" \t");
+            if (a != std::string::npos) {
+                syms.push_back(SymEngine::symbol(piece.substr(a, b - a + 1)));
+            }
+            start = end + 1;
+        }
+
+        if (eqs.empty() || syms.empty()) {
+            return cas_dup("Error in linsolve: empty equations or symbols");
+        }
+
+        vec_basic sol = SymEngine::linsolve(eqs, syms);
+        std::string out = "[";
+        for (size_t i = 0; i < sol.size(); i++) {
+            if (i) out += ", ";
+            out += str(*sol[i]);
+        }
+        out += "]";
+        return cas_dup(out);
+    } catch (const std::exception &ex) {
+        return cas_dup(std::string("Error in linsolve: ") + ex.what());
+    } catch (...) {
+        return cas_dup("Error in linsolve: system is not linear or has no "
+                       "unique solution");
     }
 }

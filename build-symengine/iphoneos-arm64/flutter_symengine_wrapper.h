@@ -23,6 +23,14 @@ char* flutter_symengine_differentiate(const char* expression, const char* symbol
 char* flutter_symengine_integrate(const char* expression, const char* symbol); // NOTE: Not implemented in SymEngine's C API.
 char* flutter_symengine_simplify(const char* expression);
 char* flutter_symengine_substitute(const char* expression, const char* symbol, const char* value);
+// Taylor/Maclaurin series of `expression` in `symbol` about `point`,
+// truncated at `order` terms (C++ TU; native + FLINT-WASM builds only).
+char* flutter_symengine_series(const char* expression, const char* symbol,
+                               const char* point, int order);
+// Symbolic linear-system solve: `equations` ';'-separated ("lhs = rhs" or
+// expr = 0 implied), `symbols` ','-separated; returns "[v1, v2, ...]" in
+// symbol order (C++ TU; native + FLINT-WASM builds only).
+char* flutter_symengine_linsolve(const char* equations, const char* symbols);
 void flutter_symengine_free_string(char* str);
 
 // Mathematical Functions

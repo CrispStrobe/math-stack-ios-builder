@@ -11,6 +11,10 @@
 set -e
 
 # --- Configuration ---
+# LINKAGE: "static" (default, Route A / AGPL combined-work) or "shared"
+# (Route B / LGPL-relinkable dynamic frameworks). See LGPL-COMPLIANCE.md.
+LINKAGE="${LINKAGE:-static}"
+readonly LINKAGE
 SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
 readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-gmp"
@@ -73,19 +77,36 @@ configureAndMake() {
     
     local host_triplet
     host_triplet=$([[ "$arch" == "arm64" ]] && echo "aarch64" || echo "$arch")-apple-darwin
-    local configure_args=("--host=$host_triplet" "--disable-assembly" "--enable-static" "--disable-shared")
+    local configure_args=("--host=$host_triplet" "--disable-assembly")
+    # LINKAGE (default "static") selects the static (Route A) or shared
+    # (Route B, LGPL-relinkable) build. Static is byte-identical to the
+    # original scripts. See LGPL-COMPLIANCE.md.
+    if [[ "$LINKAGE" == "shared" ]]; then
+        configure_args+=("--enable-shared" "--disable-static")
+    else
+        configure_args+=("--enable-static" "--disable-shared")
+    fi
     if [[ "$platform" != "macosx" ]]; then
         configure_args+=("--build=$(uname -m)-apple-darwin")
     fi
-    
+
     env CC="$target_cc" CFLAGS="$target_cflags" LDFLAGS="$target_ldflags" CC_FOR_BUILD="/usr/bin/clang" \
         ./configure "${configure_args[@]}"
 
     make -j"$(sysctl -n hw.ncpu)"
     make install DESTDIR="$BUILDDIR/install-$platform-$arch"
-    
+
     mkdir -p "$LIBDIR"
-    cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    if [[ "$LINKAGE" == "shared" ]]; then
+        # dylib is versioned (libgmp.10.dylib); resolve the unversioned symlink
+        # to the real file so we copy a genuine Mach-O, not a symlink.
+        local built_dylib
+        built_dylib=$(readlink -f "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib" 2>/dev/null \
+            || echo "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib")
+        cp "$built_dylib" "$LIBDIR/lib$LIBNAME-$platform-$arch.dylib"
+    else
+        cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    fi
 }
 
 createXCFramework() {
@@ -131,13 +152,40 @@ createXCFramework() {
     logMsg "✅ Successfully created and patched $framework_dir"
 }
 
+# Route B: wrap the per-arch dylibs into a dynamic (embeddable, relinkable)
+# GMP.xcframework via the shared wrap_dynamic_framework.sh helper. Kept fully
+# separate from the static createXCFramework above so the default path is
+# untouched.
+createDynamicXCFramework() {
+    logMsg "Assembling DYNAMIC GMP.xcframework (Route B / LGPL-relinkable)..."
+    local sim_universal="$LIBDIR/lib$LIBNAME-iphonesimulator-universal.dylib"
+    local mac_universal="$LIBDIR/lib$LIBNAME-macosx-universal.dylib"
+    lipo -create -output "$sim_universal" \
+        "$LIBDIR/lib$LIBNAME-iphonesimulator-x86_64.dylib" \
+        "$LIBDIR/lib$LIBNAME-iphonesimulator-arm64.dylib"
+    lipo -create -output "$mac_universal" \
+        "$LIBDIR/lib$LIBNAME-macosx-x86_64.dylib" \
+        "$LIBDIR/lib$LIBNAME-macosx-arm64.dylib"
+
+    mkdir -p "$HEADERDIR"; cp "$BUILDDIR/install-iphoneos-arm64/usr/local/include/gmp.h" "$HEADERDIR/"
+
+    "$SCRIPTDIR/wrap_dynamic_framework.sh" "GMP" "$HEADERDIR/gmp.h" "$SCRIPTDIR" \
+        "ios-arm64:arm64:$LIBDIR/lib$LIBNAME-iphoneos-arm64.dylib" \
+        "ios-arm64_x86_64-simulator:universal:$sim_universal" \
+        "macos-arm64_x86_64:universal:$mac_universal"
+}
+
 # --- Main Build Logic ---
-logMsg "Starting GMP build..."
+logMsg "Starting GMP build (LINKAGE=$LINKAGE)..."
 if [ -d "$BUILDDIR" ]; then rm -rf "$BUILDDIR"; fi
 extractSoftware
 for arch in $DEVARCHS; do configureAndMake "iphoneos" "$arch"; done
 for arch in $SIMARCHS; do configureAndMake "iphonesimulator" "$arch"; done
 for arch in $MACARCHS; do configureAndMake "macosx" "$arch"; done
-createXCFramework
+if [[ "$LINKAGE" == "shared" ]]; then
+    createDynamicXCFramework
+else
+    createXCFramework
+fi
 logMsg "🚀 GMP build process completed successfully!"
 exit 0

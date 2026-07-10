@@ -103,6 +103,14 @@ configureAndMake() {
         local built_dylib
         built_dylib=$(readlink -f "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib" 2>/dev/null \
             || echo "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib")
+        # Fix the install name to @rpath NOW, before any dependent library
+        # (MPFR/MPC/FLINT) links against this dylib -- otherwise the dependent
+        # records GMP's raw /usr/local/lib/... path as its load command and
+        # can't resolve it at runtime. Fix it on the install-tree original so
+        # dependents that link via --with-gmp=<install prefix> also get @rpath,
+        # then copy (the copy inherits the fix). The wrapper re-applies the same
+        # -id on the framework copy (idempotent).
+        install_name_tool -id "@rpath/GMP.framework/GMP" "$built_dylib"
         cp "$built_dylib" "$LIBDIR/lib$LIBNAME-$platform-$arch.dylib"
     else
         cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"

@@ -10,6 +10,10 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Configuration ---
+# LINKAGE: "static" (default, Route A) or "shared" (Route B, LGPL-relinkable).
+# Must match how GMP and MPFR were built. See LGPL-COMPLIANCE.md.
+LINKAGE="${LINKAGE:-static}"
+readonly LINKAGE
 SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
 readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-mpc"
@@ -103,8 +107,11 @@ configureAndMake() {
     local target_cc
     target_cc=$(xcrun --sdk "$platform" -f clang)
 
-    local gmp_lib_for_arch="$GMP_LIBDIR/libgmp-$platform-$arch.a"
-    local mpfr_lib_for_arch="$MPFR_LIBDIR/libmpfr-$platform-$arch.a"
+    # Dependency libs are .a in static mode, .dylib in shared mode.
+    local dep_ext=".a"
+    [[ "$LINKAGE" == "shared" ]] && dep_ext=".dylib"
+    local gmp_lib_for_arch="$GMP_LIBDIR/libgmp-$platform-$arch$dep_ext"
+    local mpfr_lib_for_arch="$MPFR_LIBDIR/libmpfr-$platform-$arch$dep_ext"
 
     if [[ ! -f "$gmp_lib_for_arch" ]] || [[ ! -f "$mpfr_lib_for_arch" ]]; then
         errorExit "Missing dependency for $platform-$arch. Libs not found:\n$gmp_lib_for_arch\n$mpfr_lib_for_arch"
@@ -142,11 +149,17 @@ configureAndMake() {
     # We pass the full path to the libs, so --with-gmp-lib can point to GMP_LIBDIR
     local configure_args=(
         "--host=$host_triplet"
-        "--disable-shared"
-        "--enable-static"
         "--with-gmp=$GMP_BUILDDIR/install-$platform-$arch/usr/local"
         "--with-mpfr=$MPFR_BUILDDIR/install-$platform-$arch/usr/local"
     )
+    if [[ "$LINKAGE" == "shared" ]]; then
+        # The GMP/MPFR install-tree dylibs those --with prefixes point at have
+        # already had their install names fixed to @rpath, so this shared MPC
+        # dylib records @rpath deps on them.
+        configure_args+=( "--enable-shared" "--disable-static" )
+    else
+        configure_args+=( "--disable-shared" "--enable-static" )
+    fi
 
     local build_cc="/usr/bin/clang"
     local build_host_triplet=""
@@ -183,7 +196,15 @@ configureAndMake() {
     make install DESTDIR="$BUILDDIR/install-$platform-$arch"
     
     mkdir -p "$LIBDIR"
-    cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    if [[ "$LINKAGE" == "shared" ]]; then
+        local built_dylib
+        built_dylib=$(readlink -f "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib" 2>/dev/null \
+            || echo "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib")
+        install_name_tool -id "@rpath/MPC.framework/MPC" "$built_dylib"
+        cp "$built_dylib" "$LIBDIR/lib$LIBNAME-$platform-$arch.dylib"
+    else
+        cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    fi
 }
 
 #
@@ -245,9 +266,30 @@ createXCFramework() {
     logMsg "✅ Successfully created and patched $framework_dir"
 }
 
+# Route B: dynamic MPC.xcframework via wrap_dynamic_framework.sh.
+createDynamicXCFramework() {
+    logMsg "Assembling DYNAMIC MPC.xcframework (Route B / LGPL-relinkable)..."
+    local sim_universal="$LIBDIR/lib$LIBNAME-iphonesimulator-universal.dylib"
+    local mac_universal="$LIBDIR/lib$LIBNAME-macosx-universal.dylib"
+    lipo -create -output "$sim_universal" \
+        "$LIBDIR/lib$LIBNAME-iphonesimulator-x86_64.dylib" \
+        "$LIBDIR/lib$LIBNAME-iphonesimulator-arm64.dylib"
+    lipo -create -output "$mac_universal" \
+        "$LIBDIR/lib$LIBNAME-macosx-x86_64.dylib" \
+        "$LIBDIR/lib$LIBNAME-macosx-arm64.dylib"
+
+    mkdir -p "$HEADERDIR"
+    cp "$BUILDDIR/install-iphoneos-arm64/usr/local/include/mpc.h" "$HEADERDIR/"
+
+    "$SCRIPTDIR/wrap_dynamic_framework.sh" "MPC" "$HEADERDIR/mpc.h" "$SCRIPTDIR" \
+        "ios-arm64:arm64:$LIBDIR/lib$LIBNAME-iphoneos-arm64.dylib" \
+        "ios-arm64_x86_64-simulator:universal:$sim_universal" \
+        "macos-arm64_x86_64:universal:$mac_universal"
+}
+
 # --- Main Build Logic ---
 
-logMsg "Starting MPC build..."
+logMsg "Starting MPC build (LINKAGE=$LINKAGE)..."
 
 checkDependencies
 
@@ -273,7 +315,11 @@ for arch in $MACARCHS; do
     configureAndMake "macosx" "$arch"
 done
 
-createXCFramework
+if [[ "$LINKAGE" == "shared" ]]; then
+    createDynamicXCFramework
+else
+    createXCFramework
+fi
 
 logMsg "🚀 MPC build process completed successfully!"
 exit 0

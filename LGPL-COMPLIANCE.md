@@ -59,37 +59,52 @@ Requirements:
 
 ### Building the dynamic variant
 
-`build_gmp.sh` is the **worked reference** for the shared path: it takes a
-`LINKAGE` env var (default `static`, which reproduces the existing behavior
-byte-for-byte). `LINKAGE=shared` configures with `--enable-shared
---disable-static` and hands the resulting per-arch `.dylib`s to
-`wrap_dynamic_framework.sh`, which fixes the install name to
-`@rpath/GMP.framework/GMP`, wraps each into an embeddable `.framework` bundle
-(binary + Info.plist + Headers), and assembles the dynamic `.xcframework`:
+**All four LGPL libraries are wired for the shared path.** Each `build_*.sh`
+takes a `LINKAGE` env var (default `static`, which reproduces the existing
+behavior byte-for-byte). Build them in dependency order:
 
 ```bash
-LINKAGE=shared ./build_gmp.sh
+LINKAGE=shared ./build_gmp.sh    # no deps
+LINKAGE=shared ./build_mpfr.sh   # links GMP
+LINKAGE=shared ./build_mpc.sh    # links GMP + MPFR
+LINKAGE=shared ./build_flint.sh  # links GMP + MPFR
 ```
 
-The other three libraries need the **same one-line configure change** --
-swap `--enable-static --disable-shared` for `--enable-shared --disable-static`
-in their `configure_args` -- and then the identical
-`wrap_dynamic_framework.sh` call. They are intentionally NOT wired for
-`LINKAGE` yet, to avoid touching the scripts CrispCalc's shipping static build
-depends on; extend them when a real permissive consumer needs it.
+`LINKAGE=shared` configures each with `--enable-shared --disable-static` and
+hands the per-arch `.dylib`s to `wrap_dynamic_framework.sh`, which fixes the
+install name to `@rpath/<Name>.framework/<Name>`, wraps each into an embeddable
+`.framework` bundle (binary + Info.plist + Headers), and assembles the dynamic
+`.xcframework`.
 
-**Status of this route:** the shared configure+compile has been validated for
-GMP on the iOS simulator (a clean `arm64` `libgmp.dylib` is produced). The full
-multi-platform, all-four-libraries framework-wrapping run has NOT been executed
-end-to-end here, and no permissive app has linked+embedded+run the result on a
-device yet. FLINT additionally links against GMP/MPFR/MPC, so its dynamic build
-needs their dylibs' `@rpath` install names resolvable at link time -- an extra
-wrinkle to work through when you do the full build. Treat Route B as "approach
-proven and documented, final artifacts not yet produced/verified" -- do a full
-build + an on-device test with your actual app before shipping.
+**How the inter-library dependencies stay relinkable:** the tricky part is that
+MPFR links GMP, MPC links GMP+MPFR, and FLINT links GMP+MPFR. Each library's
+install name is rewritten to `@rpath/<Name>.framework/<Name>` on the
+install-tree dylib *before* the next library links against it, so a dependent
+records e.g. `@rpath/GMP.framework/GMP` (not a raw `/usr/local/...` path) as its
+`LC_LOAD_DYLIB`. At runtime all the frameworks resolve via the app bundle's
+Frameworks `@rpath` -- which is exactly what makes them independently swappable
+(the LGPL relink point). **The app must "Embed & Sign" every one of them**
+(GMP, MPFR, MPC, FLINT frameworks), not just link them.
+
+**Verification status:**
+- The full four-library shared chain has been built end-to-end and inspected.
+  All four produce 3-slice dynamic `.xcframework`s (ios-arm64, ios-simulator
+  universal, macos universal); every slice is a genuine `dylib` with install id
+  `@rpath/<Name>.framework/<Name>`; and the inter-library dependencies resolve
+  correctly (verified with `otool -l`):
+  - MPFR records `@rpath/GMP.framework/GMP`
+  - MPC records `@rpath/GMP.framework/GMP` and `@rpath/MPFR.framework/MPFR`
+  - FLINT records `@rpath/GMP.framework/GMP` and `@rpath/MPFR.framework/MPFR`
+- What has NOT been done: no permissive app has yet linked, embedded, signed,
+  and run these frameworks on a real device / App Store submission. The dynamic
+  frameworks are built and structurally correct; do that end-to-end app test
+  (Embed & Sign all four, run on device) before shipping a real release.
+- The committed binaries in this repo remain the **static** build (Route A,
+  what CrispCalc ships). Route B frameworks are produced on demand by running
+  `LINKAGE=shared ./build_*.sh`; they are not committed.
 
 ## Quick decision
 
 - App is (A)GPL and open source → **Route A** (static, default scripts). Done.
-- App must be permissive/proprietary → **Route B** (dynamic frameworks). More
-  work; verify end-to-end before release.
+- App must be permissive/proprietary → **Route B** (dynamic frameworks, all
+  four wired). Run the full chain + an on-device test before release.

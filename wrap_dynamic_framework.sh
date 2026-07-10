@@ -15,8 +15,12 @@
 #   3. feeds the frameworks to `xcodebuild -create-xcframework -framework ...`
 #
 # Usage:
-#   wrap_dynamic_framework.sh <Name> <header.h> <out_dir> \
+#   wrap_dynamic_framework.sh <Name> <header.h|header_dir> <out_dir> \
 #       <platform:arch:dylib> [<platform:arch:dylib> ...]
+#
+# The second arg may be a single header file (GMP/MPFR/MPC) or a directory
+# whose contents are copied wholesale into the framework's Headers/ (FLINT,
+# which ships a whole flint/ header tree).
 #
 # where each positional slice is e.g.
 #   ios-arm64:arm64:/path/libgmp-iphoneos-arm64.dylib
@@ -60,8 +64,12 @@ for slice in "$@"; do
     install_name_tool -id "@rpath/$NAME.framework/$FRAMEWORK_BINARY_NAME" \
         "$fw_dir/$FRAMEWORK_BINARY_NAME"
 
-    # 3. headers + a minimal Info.plist.
-    cp "$HEADER" "$fw_dir/Headers/"
+    # 3. headers (single file or a whole directory tree) + a minimal Info.plist.
+    if [ -d "$HEADER" ]; then
+        cp -R "$HEADER"/. "$fw_dir/Headers/"
+    else
+        cp "$HEADER" "$fw_dir/Headers/"
+    fi
 
     /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.crispstrobe.mathstack.$NAME" "$fw_dir/Info.plist" >/dev/null
     /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $FRAMEWORK_BINARY_NAME" "$fw_dir/Info.plist" >/dev/null

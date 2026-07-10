@@ -13,6 +13,10 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 
 # --- Configuration ---
+# LINKAGE: "static" (default, Route A) or "shared" (Route B, LGPL-relinkable
+# dynamic frameworks). Must match how GMP was built. See LGPL-COMPLIANCE.md.
+LINKAGE="${LINKAGE:-static}"
+readonly LINKAGE
 SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
 readonly SCRIPTDIR
 readonly BUILDDIR="$SCRIPTDIR/build-mpfr"
@@ -98,10 +102,17 @@ configureAndMake() {
     logMsg "Using SDK: $sdkpath"
 
     # Set up a temporary directory for the correctly-named GMP library,
-    # as the configure script expects `libgmp.a`.
+    # as the configure script expects `libgmp.a` / `libgmp.dylib`.
     local temp_gmp_lib_dir="$BUILDDIR/temp-gmp-$platform-$arch"
     mkdir -p "$temp_gmp_lib_dir"
-    ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.a" "$temp_gmp_lib_dir/libgmp.a"
+    if [[ "$LINKAGE" == "shared" ]]; then
+        # Link against GMP's dylib (which already carries the @rpath install
+        # name), so this MPFR dylib records @rpath/GMP.framework/GMP as its
+        # dependency rather than a raw /usr/local path.
+        ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.dylib" "$temp_gmp_lib_dir/libgmp.dylib"
+    else
+        ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.a" "$temp_gmp_lib_dir/libgmp.a"
+    fi
 
     local target_cc
     target_cc=$(xcrun --sdk "$platform" -f clang)
@@ -131,9 +142,12 @@ configureAndMake() {
         "--host=$host_triplet"
         "--with-gmp-include=$GMP_HEADERS_DIR"
         "--with-gmp-lib=$temp_gmp_lib_dir"
-        "--disable-shared"
-        "--enable-static"
     )
+    if [[ "$LINKAGE" == "shared" ]]; then
+        configure_args+=( "--enable-shared" "--disable-static" )
+    else
+        configure_args+=( "--disable-shared" "--enable-static" )
+    fi
 
     local build_cc="/usr/bin/clang"
     local build_host_triplet
@@ -170,8 +184,18 @@ configureAndMake() {
 
     logMsg "Copying built MPFR library..."
     mkdir -p "$LIBDIR"
-    cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
-    
+    if [[ "$LINKAGE" == "shared" ]]; then
+        local built_dylib
+        built_dylib=$(readlink -f "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib" 2>/dev/null \
+            || echo "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.dylib")
+        # Fix @rpath -id on the install-tree original (so MPC/FLINT linking via
+        # --with-mpfr=<install prefix> record @rpath), then copy.
+        install_name_tool -id "@rpath/MPFR.framework/MPFR" "$built_dylib"
+        cp "$built_dylib" "$LIBDIR/lib$LIBNAME-$platform-$arch.dylib"
+    else
+        cp "$BUILDDIR/install-$platform-$arch/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    fi
+
     # Clean up temp directory
     rm -rf "$temp_gmp_lib_dir"
 }
@@ -223,8 +247,29 @@ createFramework() {
     logMsg "✅ Successfully created and patched $framework_dir"
 }
 
+# Route B: dynamic MPFR.xcframework via wrap_dynamic_framework.sh.
+createDynamicFramework() {
+    logMsg "Assembling DYNAMIC MPFR.xcframework (Route B / LGPL-relinkable)..."
+    local sim_universal="$LIBDIR/lib$LIBNAME-iphonesimulator-universal.dylib"
+    local mac_universal="$LIBDIR/lib$LIBNAME-macosx-universal.dylib"
+    lipo -create -output "$sim_universal" \
+        "$LIBDIR/lib$LIBNAME-iphonesimulator-x86_64.dylib" \
+        "$LIBDIR/lib$LIBNAME-iphonesimulator-arm64.dylib"
+    lipo -create -output "$mac_universal" \
+        "$LIBDIR/lib$LIBNAME-macosx-x86_64.dylib" \
+        "$LIBDIR/lib$LIBNAME-macosx-arm64.dylib"
+
+    mkdir -p "$HEADERDIR"
+    cp "$BUILDDIR/install-iphoneos-arm64/usr/local/include/"*.h "$HEADERDIR/"
+
+    "$SCRIPTDIR/wrap_dynamic_framework.sh" "MPFR" "$HEADERDIR/mpfr.h" "$SCRIPTDIR" \
+        "ios-arm64:arm64:$LIBDIR/lib$LIBNAME-iphoneos-arm64.dylib" \
+        "ios-arm64_x86_64-simulator:universal:$sim_universal" \
+        "macos-arm64_x86_64:universal:$mac_universal"
+}
+
 # --- Main Build Logic ---
-logMsg "Starting MPFR build for iOS, Simulator, and macOS..."
+logMsg "Starting MPFR build (LINKAGE=$LINKAGE) for iOS, Simulator, and macOS..."
 
 checkGmpDependency
 
@@ -250,7 +295,11 @@ for arch in $MACARCHS; do
     configureAndMake "macosx" "$arch"
 done
 
-createFramework
+if [[ "$LINKAGE" == "shared" ]]; then
+    createDynamicFramework
+else
+    createFramework
+fi
 
 logMsg "🚀 MPFR build process completed successfully!"
 exit 0

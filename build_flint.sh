@@ -12,6 +12,10 @@ set -e # Exit immediately if a command exits with a non-zero status.
 # --- Configuration ---
 SCRIPTDIR=$(cd "$(dirname "$0")" && pwd)
 readonly SCRIPTDIR
+# LINKAGE: "static" (default, Route A) or "shared" (Route B, LGPL-relinkable).
+# Must match how GMP/MPFR/MPC were built. See LGPL-COMPLIANCE.md.
+LINKAGE="${LINKAGE:-static}"
+readonly LINKAGE
 readonly BUILDDIR="$SCRIPTDIR/build-flint"
 readonly LIBDIR="$BUILDDIR/lib"
 readonly HEADERDIR="$BUILDDIR/include"
@@ -80,8 +84,15 @@ configureAndMake() {
     target_cc=$(xcrun --sdk "$platform" -f clang)
     local temp_lib_dir="$BUILDDIR/temp-deps-$platform-$arch"
     mkdir -p "$temp_lib_dir"
-    ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.a" "$temp_lib_dir/libgmp.a"
-    ln -sf "$MPFR_LIBDIR/libmpfr-$platform-$arch.a" "$temp_lib_dir/libmpfr.a"
+    if [[ "$LINKAGE" == "shared" ]]; then
+        # Link against the @rpath-fixed GMP/MPFR dylibs so this FLINT dylib
+        # records @rpath deps. (MPC isn't a link-time dep of FLINT.)
+        ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.dylib" "$temp_lib_dir/libgmp.dylib"
+        ln -sf "$MPFR_LIBDIR/libmpfr-$platform-$arch.dylib" "$temp_lib_dir/libmpfr.dylib"
+    else
+        ln -sf "$GMP_LIBDIR/libgmp-$platform-$arch.a" "$temp_lib_dir/libgmp.a"
+        ln -sf "$MPFR_LIBDIR/libmpfr-$platform-$arch.a" "$temp_lib_dir/libmpfr.a"
+    fi
 
     local target_cflags
     local target_ldflags
@@ -107,13 +118,16 @@ configureAndMake() {
     host_triplet=$([[ "$arch" == "arm64" ]] && echo "aarch64" || echo "$arch")-apple-darwin
     local configure_args=(
         "--host=$host_triplet"
-        "--disable-shared"
-        "--enable-static"
         "--disable-assembly"
         "--with-gmp=$GMP_BUILDDIR"
         "--with-mpfr=$MPFR_BUILDDIR"
         "--disable-thread-safe"
     )
+    if [[ "$LINKAGE" == "shared" ]]; then
+        configure_args+=( "--enable-shared" "--disable-static" )
+    else
+        configure_args+=( "--disable-shared" "--enable-static" )
+    fi
     if [[ "$platform" != "macosx" ]]; then
         configure_args+=("--build=$(uname -m)-apple-darwin")
     fi
@@ -131,7 +145,15 @@ configureAndMake() {
 
     logMsg "Copying built FLINT library..."
     mkdir -p "$LIBDIR"
-    cp "$install_dir/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    if [[ "$LINKAGE" == "shared" ]]; then
+        local built_dylib
+        built_dylib=$(readlink -f "$install_dir/usr/local/lib/lib$LIBNAME.dylib" 2>/dev/null \
+            || echo "$install_dir/usr/local/lib/lib$LIBNAME.dylib")
+        install_name_tool -id "@rpath/FLINT.framework/FLINT" "$built_dylib"
+        cp "$built_dylib" "$LIBDIR/lib$LIBNAME-$platform-$arch.dylib"
+    else
+        cp "$install_dir/usr/local/lib/lib$LIBNAME.a" "$LIBDIR/lib$LIBNAME-$platform-$arch.a"
+    fi
     
     rm -rf "$temp_lib_dir"
 }
@@ -186,8 +208,25 @@ createXCFramework() {
     logMsg "✅ Successfully created and patched $framework_dir"
 }
 
+# Route B: dynamic FLINT.xcframework via wrap_dynamic_framework.sh. FLINT.dylib
+# carries LC_LOAD_DYLIB deps on @rpath/GMP.framework/GMP and
+# @rpath/MPFR.framework/MPFR, so the consuming app must embed those frameworks
+# too (they all resolve via the app's Frameworks @rpath).
+createDynamicXCFramework() {
+    logMsg "Assembling DYNAMIC FLINT.xcframework (Route B / LGPL-relinkable)..."
+    local sim_universal="$LIBDIR/lib$LIBNAME-iphonesimulator-universal.dylib"
+    local mac_universal="$LIBDIR/lib$LIBNAME-macosx-universal.dylib"
+    lipo -create -output "$sim_universal" "$LIBDIR"/lib$LIBNAME-iphonesimulator-*.dylib
+    lipo -create -output "$mac_universal" "$LIBDIR"/lib$LIBNAME-macosx-*.dylib
+
+    "$SCRIPTDIR/wrap_dynamic_framework.sh" "FLINT" "$HEADERDIR" "$SCRIPTDIR" \
+        "ios-arm64:arm64:$LIBDIR/lib$LIBNAME-iphoneos-arm64.dylib" \
+        "ios-arm64_x86_64-simulator:universal:$sim_universal" \
+        "macos-arm64_x86_64:universal:$mac_universal"
+}
+
 # --- Main Build Logic ---
-logMsg "Starting FLINT build..."
+logMsg "Starting FLINT build (LINKAGE=$LINKAGE)..."
 checkDependencies
 if [ -d "$BUILDDIR" ]; then logMsg "Cleaning old FLINT build directory..."; rm -rf "$BUILDDIR"; fi
 extractSoftware
@@ -207,7 +246,11 @@ for arch in $SIMARCHS; do configureAndMake "iphonesimulator" "$arch"; done
 logMsg "--- Building for macOS ---"
 for arch in $MACARCHS; do configureAndMake "macosx" "$arch"; done
 
-createXCFramework
+if [[ "$LINKAGE" == "shared" ]]; then
+    createDynamicXCFramework
+else
+    createXCFramework
+fi
 
 logMsg "🚀 FLINT build process completed successfully!"
 exit 0

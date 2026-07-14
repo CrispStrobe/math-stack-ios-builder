@@ -1,11 +1,17 @@
 # LGPL compliance for the math stack
 
-This build system compiles **GMP, MPFR, MPC** (all **LGPL-3.0-or-later**)
-and **FLINT** (**LGPL-2.1-or-later**), plus **SymEngine** (MIT, no copyleft).
-The LGPL libraries carry an obligation that MIT/BSD ones don't: whoever
-receives your app must be able to **relink it against a modified version of
-the LGPL library**. This document explains the two established ways to satisfy
-that, and which one to pick.
+This build system compiles **GMP** (**LGPL-3.0-or-later / GPL-2.0-or-later**),
+**MPFR** and **MPC** (**LGPL-3.0-or-later**), **FLINT**
+(**LGPL-2.1-or-later**), plus **SymEngine** (MIT, no copyleft). The LGPL
+libraries carry an obligation that MIT/BSD ones do not: whoever receives your
+app must receive a practical way to **modify the LGPL library and use that
+modified version with the application**. For static linking this usually means
+providing enough application object files, source, build scripts, dependency
+versions, and installation information to rebuild or relink the combined work.
+
+This document is engineering guidance, not legal advice. Treat it as a checklist
+for what the build system must support; get legal review before distributing a
+commercial or App Store release that depends on the static native stack.
 
 The obligation is triggered by *distribution* (App Store, a download, TestFlight
 to people outside your org). It does not apply to purely private/in-house use.
@@ -19,40 +25,52 @@ doable (dynamic libraries wrapped as embedded `.framework`s are accepted), just
 more work than static linking. So there are two routes, and this repo can serve
 both.
 
-## Route A — static link + copyleft the whole app (what CrispCalc does)
+## Route A — static link + complete rebuild/relink path
 
-LGPLv3 §4 (and the LGPLv2.1 equivalent) explicitly permits an alternative to
-providing a relink mechanism: **release the entire combined work under the GPL
-or AGPL, with complete corresponding source.** If your app is going to be open
-source under (A)GPL-3.0 anyway, this is the simplest path and static linking is
-fine.
+Static linking is compatible with LGPL distribution only if recipients can
+replace the LGPL parts with modified builds. For LGPLv3 libraries, that means
+the "Corresponding Application Code" and any needed installation information for
+the combined work. For LGPLv2.1 libraries, that means object files and/or another
+workable relink path. In practice, the cleanest way for an open-source app is to
+publish the complete app source, exact dependency versions, build scripts, and
+signing/rebuild instructions needed to produce a new app binary with modified
+GMP/MPFR/MPC/FLINT libraries.
+
+Licensing the whole app under GPL or AGPL can be a sensible policy choice for a
+project that already wants copyleft, but it is not a magic substitute for the
+LGPL relinkability obligation. AGPL is only relevant if you intentionally want
+network-use source disclosure; it is not required by these LGPL libraries.
 
 Requirements:
-- App licensed GPL-3.0 or AGPL-3.0 (AGPL if it's network-facing).
-- **Complete corresponding source publicly available** (a public repo link in
-  the app satisfies this -- an actual working link, not just a promise).
+- **Complete corresponding source/build material available** for the application
+  and the native stack: source, object files where needed, exact versions, build
+  scripts, and enough instructions to rebuild or relink with modified LGPL
+  libraries.
+- If the distributed app has installation restrictions, provide whatever
+  installation information is needed for a recipient to run their rebuilt
+  version on the target device class.
 - Attribution: reproduce/point to each library's license (see the
   `assets/licenses/` pattern in CrispCalc).
 
 The default build scripts here (`--enable-static --disable-shared`) produce
-static frameworks, which is exactly what Route A wants.
+static frameworks. Those are convenient for app integration, but they increase
+the documentation burden: the consuming app must provide the rebuild/relink path
+above when it distributes binaries.
 
 ## Route B — dynamic (relinkable) frameworks + keep your app permissive
 
-If your app must stay **permissive or proprietary** (MIT/BSD/closed), you cannot
-use Route A -- you have to give users the relink capability instead. On iOS/macOS
-that means shipping GMP/MPFR/MPC/FLINT as **dynamic `.framework`s embedded in the
-app bundle** (Xcode target → Frameworks → "Embed & Sign"), so a user could in
+If your app must stay **permissive or proprietary** (MIT/BSD/closed), the usual
+route is to make the LGPL libraries independently replaceable. On iOS/macOS that
+means shipping GMP/MPFR/MPC/FLINT as **dynamic `.framework`s embedded in the app
+bundle** (Xcode target -> Frameworks -> "Embed & Sign"), so a user could in
 principle drop in their own rebuilt library and re-sign the app.
 
 Requirements:
 - LGPL parts are **dynamically** linked (embedded dynamic frameworks, not baked
   into the main executable).
-- You provide, or point to, the **object files / build recipe** for your app
-  sufficient to relink -- in practice: publish the exact library version + these
-  build scripts (this repo), plus your app's own linkable objects or a documented
-  way to rebuild. Publishing this repo + the pinned versions covers the library
-  side.
+- You provide or point to the library source/build scripts, exact library
+  versions, notices, and any information a recipient needs to rebuild compatible
+  replacement frameworks and install/re-sign the application with them.
 - SymEngine and your own wrapper can still be static; only the LGPL libraries
   must be the relinkable dynamic ones.
 - Attribution as in Route A.
@@ -99,12 +117,15 @@ Frameworks `@rpath` -- which is exactly what makes them independently swappable
   and run these frameworks on a real device / App Store submission. The dynamic
   frameworks are built and structurally correct; do that end-to-end app test
   (Embed & Sign all four, run on device) before shipping a real release.
-- The committed binaries in this repo remain the **static** build (Route A,
-  what CrispCalc ships). Route B frameworks are produced on demand by running
-  `LINKAGE=shared ./build_*.sh`; they are not committed.
+- The committed binaries in downstream packages may still be the **static**
+  build. If you distribute those static binaries, make sure the consuming app
+  provides the rebuild/relink path described in Route A. Route B frameworks are
+  produced on demand by running `LINKAGE=shared ./build_*.sh`; they are not
+  committed here.
 
 ## Quick decision
 
-- App is (A)GPL and open source → **Route A** (static, default scripts). Done.
+- App source/build is published enough for recipients to rebuild or relink with
+  modified LGPL libraries -> **Route A** (static, default scripts).
 - App must be permissive/proprietary → **Route B** (dynamic frameworks, all
   four wired). Run the full chain + an on-device test before release.

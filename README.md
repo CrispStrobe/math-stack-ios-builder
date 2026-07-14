@@ -166,4 +166,10 @@ void flutter_symengine_free_string(char* str);
 
 ## License
 
-This build system is released under the **MIT License**. The underlying mathematical libraries are available under their own open-source licenses (primarily LGPL), which you must comply with in your application.
+This build system's scripts and wrapper code are released under the
+**MIT License**. The libraries it builds keep their own upstream licenses:
+GMP is dual **LGPL-3.0-or-later / GPL-2.0-or-later**, MPFR and MPC are
+**LGPL-3.0-or-later**, FLINT is **LGPL-2.1-or-later**, and SymEngine is
+**MIT**. If you distribute an app that links the LGPL libraries, you must
+provide the notices, source/build information, and rebuild or relink path those
+licenses require. See [`LGPL-COMPLIANCE.md`](LGPL-COMPLIANCE.md).
